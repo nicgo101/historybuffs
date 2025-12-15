@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Sheet,
   SheetContent,
@@ -25,8 +26,11 @@ import {
   Ship,
   Footprints,
   Star,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react'
-import type { MapFactoid, JourneyRoute } from '@/components/map'
+import type { MapFactoid, JourneyRoute, BulkLocation } from '@/components/map'
+import { useMapData, useBulkLocations } from '@/hooks/use-map-data'
 
 // Dynamic import to avoid SSR issues with MapLibre
 const HistoryMap = dynamic(
@@ -43,166 +47,6 @@ const HistoryMap = dynamic(
     ),
   }
 )
-
-// Demo data - in production this would come from Supabase
-const DEMO_FACTOIDS: MapFactoid[] = [
-  {
-    id: '1',
-    summary: 'Construction of the Great Pyramid of Giza',
-    description: 'The Great Pyramid was built as a tomb for Pharaoh Khufu during the Fourth Dynasty.',
-    layer: 'documented',
-    confidence: 0.85,
-    location: {
-      id: 'giza',
-      name: 'Giza',
-      nameHistorical: 'Giza Necropolis',
-      coordinates: [31.1342, 29.9792],
-      uncertaintyRadiusKm: 0.5,
-      locationType: 'point',
-      locationSubtype: 'monument',
-    },
-    dateStart: '-2560',
-    category: 'Construction',
-  },
-  {
-    id: '2',
-    summary: 'Battle of Thermopylae',
-    description: 'King Leonidas and 300 Spartans made their famous last stand against the Persian army.',
-    layer: 'attested',
-    confidence: 0.78,
-    location: {
-      id: 'thermopylae',
-      name: 'Thermopylae',
-      nameHistorical: 'Hot Gates',
-      coordinates: [22.5367, 38.7967],
-      uncertaintyRadiusKm: 2,
-      locationType: 'point',
-      locationSubtype: 'battlefield',
-    },
-    dateStart: '-0480',
-    category: 'Military',
-  },
-  {
-    id: '3',
-    summary: 'Library of Alexandria founded',
-    description: 'The great library was established during the reign of Ptolemy II Philadelphus.',
-    layer: 'attested',
-    confidence: 0.72,
-    location: {
-      id: 'alexandria',
-      name: 'Alexandria',
-      nameHistorical: 'Alexandria',
-      coordinates: [29.9187, 31.2001],
-      uncertaintyRadiusKm: 1,
-      locationType: 'point',
-      locationSubtype: 'structure',
-    },
-    dateStart: '-0283',
-    category: 'Cultural',
-  },
-  {
-    id: '4',
-    summary: 'Fall of Jerusalem to Babylon',
-    description: 'Nebuchadnezzar II conquered Jerusalem and destroyed the First Temple.',
-    layer: 'documented',
-    confidence: 0.88,
-    location: {
-      id: 'jerusalem',
-      name: 'Jerusalem',
-      nameHistorical: 'Yerushalayim',
-      coordinates: [35.2137, 31.7683],
-      uncertaintyRadiusKm: 0.5,
-      locationType: 'point',
-      locationSubtype: 'city',
-    },
-    dateStart: '-0586',
-    category: 'Military',
-  },
-  {
-    id: '5',
-    summary: 'Founding of Rome',
-    description: 'Traditional date for the founding of Rome by Romulus.',
-    layer: 'inferred',
-    confidence: 0.35,
-    location: {
-      id: 'rome',
-      name: 'Rome',
-      nameHistorical: 'Roma',
-      coordinates: [12.4964, 41.9028],
-      uncertaintyRadiusKm: 3,
-      locationType: 'point',
-      locationSubtype: 'city',
-    },
-    dateStart: '-0753',
-    category: 'Political',
-  },
-  {
-    id: '6',
-    summary: 'Construction of Persepolis begins',
-    description: 'Darius I began construction of the ceremonial capital of the Achaemenid Empire.',
-    layer: 'documented',
-    confidence: 0.82,
-    location: {
-      id: 'persepolis',
-      name: 'Persepolis',
-      nameHistorical: 'Parsa',
-      coordinates: [52.8917, 29.9353],
-      uncertaintyRadiusKm: 0.5,
-      locationType: 'point',
-      locationSubtype: 'structure',
-    },
-    dateStart: '-0515',
-    category: 'Construction',
-  },
-]
-
-const DEMO_ROUTES: JourneyRoute[] = [
-  {
-    id: 'alexander',
-    name: "Alexander's Campaign",
-    description: 'The military campaign of Alexander the Great from Macedonia to India.',
-    routeType: 'campaign',
-    coordinates: [
-      [22.9444, 40.6401], // Pella
-      [26.2389, 39.9575], // Troy
-      [36.1627, 36.2021], // Issus
-      [35.5018, 33.8938], // Tyre
-      [31.2357, 30.0444], // Alexandria
-      [44.3661, 33.3152], // Babylon
-      [52.8917, 29.9353], // Persepolis
-      [69.1723, 34.5281], // Kabul
-    ],
-  },
-  {
-    id: 'exodus',
-    name: 'Journey of the Exodus',
-    description: 'Traditional route of the Israelite exodus from Egypt.',
-    routeType: 'migration',
-    coordinates: [
-      [31.2357, 30.0444], // Egypt
-      [32.5567, 29.9667], // Succoth
-      [33.9667, 28.5667], // Sinai area
-      [34.9533, 29.5569], // Gulf of Aqaba
-      [35.2137, 31.7683], // Jerusalem
-    ],
-  },
-  {
-    id: 'paul',
-    name: "Paul's First Missionary Journey",
-    description: "The apostle Paul's first missionary journey through Asia Minor.",
-    routeType: 'pilgrimage',
-    coordinates: [
-      [36.1566, 36.2028], // Antioch
-      [32.8597, 36.9181], // Seleucia
-      [33.0333, 34.6667], // Cyprus (Salamis)
-      [30.6206, 36.8969], // Perga
-      [31.5878, 37.8469], // Pisidian Antioch
-      [32.4667, 37.9833], // Iconium
-      [32.4667, 37.0833], // Lystra
-      [36.1566, 36.2028], // Return to Antioch
-    ],
-  },
-]
 
 const LAYER_FILTERS = [
   { id: 'documented', label: 'Documented', color: 'bg-primary' },
@@ -227,15 +71,45 @@ const ROUTE_TYPE_INFO = {
 }
 
 export default function MapPage() {
+  // Fetch bulk locations for cluster layer (handles 45k+ locations)
+  const {
+    locations,
+    loading: locationsLoading,
+    error: locationsError,
+    refetch: refetchLocations,
+  } = useBulkLocations({
+    fetchOnMount: true,
+  })
+
+  // Fetch factoids and routes (for filtered/featured items and routes)
+  const { factoids, routes, loading: dataLoading, error: dataError, refetch: refetchData } = useMapData({
+    fetchOnMount: true,
+    useDemoFallback: true,
+  })
+
+  // Combined loading/error states
+  const loading = locationsLoading || dataLoading
+  const error = locationsError || dataError
+
+  const refetch = useCallback(() => {
+    refetchLocations()
+    refetchData()
+  }, [refetchLocations, refetchData])
+
   const [selectedFactoid, setSelectedFactoid] = useState<MapFactoid | null>(null)
   const [showUncertainty, setShowUncertainty] = useState(true)
   const [visibleLayers, setVisibleLayers] = useState<Set<string>>(
     new Set(['documented', 'attested', 'inferred'])
   )
-  const [visibleRoutes, setVisibleRoutes] = useState<Set<string>>(
-    new Set(DEMO_ROUTES.map((r) => r.id))
-  )
+  const [visibleRoutes, setVisibleRoutes] = useState<Set<string>>(new Set())
   const [showFilters, setShowFilters] = useState(false)
+
+  // Initialize visible routes when routes are loaded
+  useMemo(() => {
+    if (routes.length > 0 && visibleRoutes.size === 0) {
+      setVisibleRoutes(new Set(routes.map((r) => r.id)))
+    }
+  }, [routes])
 
   const handleFactoidClick = useCallback((factoid: MapFactoid) => {
     setSelectedFactoid(factoid)
@@ -266,8 +140,8 @@ export default function MapPage() {
   }
 
   // Filter factoids based on visible layers
-  const filteredFactoids = DEMO_FACTOIDS.filter((f) => visibleLayers.has(f.layer))
-  const filteredRoutes = DEMO_ROUTES.filter((r) => visibleRoutes.has(r.id))
+  const filteredFactoids = factoids.filter((f) => visibleLayers.has(f.layer))
+  const filteredRoutes = routes.filter((r) => visibleRoutes.has(r.id))
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col">
@@ -281,6 +155,22 @@ export default function MapPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {error && (
+              <Badge variant="outline" className="text-amber-600 border-amber-600/30 gap-1">
+                <AlertCircle className="h-3 w-3" />
+                Using demo data
+              </Badge>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={loading}
+              className="gap-2"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              {loading ? 'Loading...' : 'Refresh'}
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -310,6 +200,7 @@ export default function MapPage() {
       {/* Map Container */}
       <div className="flex-1 relative">
         <HistoryMap
+          locations={locations}
           factoids={filteredFactoids}
           journeyRoutes={filteredRoutes}
           showUncertainty={showUncertainty}
@@ -347,6 +238,9 @@ export default function MapPage() {
 
         {/* Stats */}
         <div className="absolute top-4 left-4 flex gap-2">
+          <Badge variant="secondary" className="bg-background/95 backdrop-blur-sm">
+            {locations.length.toLocaleString()} Locations
+          </Badge>
           <Badge variant="secondary" className="bg-background/95 backdrop-blur-sm">
             {filteredFactoids.length} Events
           </Badge>
@@ -396,8 +290,9 @@ export default function MapPage() {
             <div>
               <h4 className="font-medium text-sm mb-3">Journey Routes</h4>
               <div className="space-y-2">
-                {DEMO_ROUTES.map((route) => {
-                  const info = ROUTE_TYPE_INFO[route.routeType]
+                {routes.map((route) => {
+                  const info = ROUTE_TYPE_INFO[route.routeType as keyof typeof ROUTE_TYPE_INFO]
+                  if (!info) return null
                   return (
                     <button
                       key={route.id}

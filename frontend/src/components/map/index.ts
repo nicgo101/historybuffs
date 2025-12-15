@@ -4,4 +4,5 @@ export type {
   MapFactoid,
   JourneyRoute,
   HistoricalMapOverlay,
+  BulkLocation,
 } from './history-map'

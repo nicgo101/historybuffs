@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.routes import health, factoids, sources
+from app.api.routes import health, factoids, sources, map
 
 app = FastAPI(
     title="HistoryBuff API",
@@ -28,6 +28,7 @@ app.add_middleware(
 app.include_router(health.router, tags=["health"])
 app.include_router(factoids.router, prefix="/api/factoids", tags=["factoids"])
 app.include_router(sources.router, prefix="/api/sources", tags=["sources"])
+app.include_router(map.router, prefix="/api/map", tags=["map"])
 
 
 @app.get("/")
