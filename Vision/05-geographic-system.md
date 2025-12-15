@@ -944,15 +944,17 @@ This means the same lens showing "Troy" could display at Hisarlik (mainstream) o
 
 ## Open Questions
 
-- **Coordinate precision**: How many decimal places to store? (6 decimals = ~0.1m precision, probably overkill for ancient history)
+- ~~**Coordinate precision**: How many decimal places to store?~~ **DECIDED**: 6 decimals (DECIMAL(12,6)) - ~0.1m precision retained for flexibility
 
-- **Base map**: What modern base map to use? OpenStreetMap? Something more minimal?
+- ~~**Base map**: What modern base map to use?~~ **DECIDED**: OpenStreetMap with desaturated "archival" styling
 
-- **Projection for display**: What map projection for visualization? Mercator (familiar but distorted)? Equirectangular? Period-appropriate?
+- **Projection for display**: What map projection for visualization? Mercator (familiar but distorted)? Equirectangular? Period-appropriate? *Currently using Web Mercator (EPSG:3857) via MapLibre default*
 
 - **Sea level baseline**: When showing historical coastlines, what sea level datum to use?
 
-- **Geocoding service**: For user-entered place names, what geocoding service? (Need to handle historical names too)
+- **Geocoding service**: For user-entered place names, what geocoding service? (Need to handle historical names too) *Consider Pleiades API for ancient places*
+
+- ~~**Mapping library**~~: **DECIDED**: MapLibre GL JS - provides vector tiles, WebGL, overlay support, path to 3D
 
 ---
 
@@ -1007,7 +1009,131 @@ Frontend options:
 - **OpenLayers**: Full-featured, complex
 - **D3.js geo**: For custom visualizations
 
-Recommendation: Start with Leaflet (MVP), migrate to MapLibre for advanced features.
+**Decision**: MapLibre GL JS selected for implementation. Provides vector tile support, WebGL rendering, historical map overlay capabilities, and a path to 3D terrain features.
+
+---
+
+## Implementation Status
+
+### Completed (MVP Phase 1)
+
+#### Frontend Components
+
+**Map Component** (`frontend/src/components/map/history-map.tsx`)
+- MapLibre GL JS integration with OpenStreetMap tiles
+- Desaturated "archival" base map styling
+- Factoid markers with layer-based coloring (documented/attested/inferred)
+- Uncertainty circle visualization using GeoJSON polygons
+- Journey route rendering with route-type styling
+- Popup tooltips with factoid details
+- Click handlers for factoid selection
+
+**Map Page** (`frontend/src/app/map/page.tsx`)
+- Full-screen map view with filter controls
+- Layer filtering (documented, attested, inferred)
+- Category filtering
+- Journey route toggle
+- Factoid detail panel (Sheet component)
+- Legend with route type colors
+
+**TypeScript Interfaces**:
+```typescript
+interface MapLocation {
+  id: string
+  name: string
+  nameHistorical?: string
+  coordinates: [number, number]  // [lng, lat]
+  uncertaintyRadiusKm?: number
+  locationType: 'point' | 'area' | 'linear'
+  locationSubtype?: string
+}
+
+interface MapFactoid {
+  id: string
+  summary: string
+  description?: string
+  layer: 'documented' | 'attested' | 'inferred'
+  confidence?: number
+  location: MapLocation
+  dateStart?: string
+  dateEnd?: string
+  category?: string
+}
+
+interface JourneyRoute {
+  id: string
+  name: string
+  description?: string
+  routeType: 'travel' | 'campaign' | 'migration' | 'trade_route' | 'pilgrimage'
+  coordinates: [number, number][]
+  color?: string
+}
+
+interface HistoricalMapOverlay {
+  id: string
+  name: string
+  tileUrl: string
+  bounds: [[number, number], [number, number]]
+  minZoom?: number
+  maxZoom?: number
+  opacity?: number
+}
+```
+
+#### Database Schema
+
+**Base Migration** (`backend/migrations/002_mvp_schema.sql`)
+- `locations` table with coordinates, uncertainty, type/subtype
+- `factoid_locations` linking table
+- Vector embeddings for semantic search
+- RLS policies for public read, authenticated write
+
+**Geographic Extensions** (`backend/migrations/004_geographic_extensions.sql`)
+- Extended `locations` with boundary_geojson, location_changes, environment fields
+- `location_interpretations` table for contested locations
+- `historical_maps` table with georeferencing support
+- `map_discrepancies` table for tracking historical/modern differences
+- `journey_routes` table for route rendering
+- `factoid_locations` many-to-many relationship
+- `calculate_distance_km()` function supporting both spherical and flat models
+- `find_locations_within_km()` spatial query function
+
+#### Route Type Styling
+
+| Type | Color | Style |
+|------|-------|-------|
+| `travel` | Gray (#6B7280) | Solid line |
+| `campaign` | Red (#DC2626) | Solid line |
+| `migration` | Purple (#7C3AED) | Solid line |
+| `trade_route` | Amber (#D97706) | Solid line |
+| `pilgrimage` | Green (#059669) | Dashed line |
+
+#### Layer Colors (Confidence Visualization)
+
+| Layer | Color | Meaning |
+|-------|-------|---------|
+| `documented` | Burgundy (#7c2d12) | Direct physical evidence |
+| `attested` | Gold (#b45309) | Written sources |
+| `inferred` | Gray (#6b7280) | Scholarly inference |
+
+### Pending (Phase 2+)
+
+- [ ] Historical map upload and georeferencing tool
+- [ ] Community georectification workflow (GCP placement UI)
+- [ ] Tile generation pipeline for georeferenced maps
+- [ ] Time slider for temporal filtering
+- [ ] Uncertainty ellipses (non-circular)
+- [ ] Flat plane coordinate system toggle
+- [ ] Distance comparison display (spherical vs flat)
+- [ ] Animation system for journey playback
+- [ ] PostGIS integration for production spatial queries
+- [ ] Map clustering for dense marker regions
+
+### Answered Questions
+
+- **Base map**: OpenStreetMap with desaturated styling for archival aesthetic
+- **Mapping library**: MapLibre GL JS (not Leaflet) - better overlay support
+- **Coordinate precision**: 6 decimal places (DECIMAL(12,6)) retained per original spec
 
 ---
 

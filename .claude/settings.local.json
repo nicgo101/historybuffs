@@ -24,7 +24,11 @@
       "Bash(python3:*)",
       "Bash(source venv/bin/activate)",
       "Bash(pip install:*)",
-      "Bash(python scripts/ingest.py:*)"
+      "Bash(python scripts/ingest.py:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm install:*)",
+      "mcp__supabase__list_tables"
     ]
   },
   "enabledMcpjsonServers": [

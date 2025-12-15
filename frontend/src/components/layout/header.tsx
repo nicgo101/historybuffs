@@ -15,12 +15,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
-import { Menu, Compass, Clock, Library, User as UserIcon, LogOut, Settings, Feather } from 'lucide-react'
+import { Menu, Compass, Clock, Library, User as UserIcon, LogOut, Settings, Feather, Map } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navigation = [
   { name: 'Explore', href: '/explore', icon: Compass },
   { name: 'Timeline', href: '/timeline', icon: Clock },
+  { name: 'Map', href: '/map', icon: Map },
   { name: 'Sources', href: '/sources', icon: Library },
 ]
 
