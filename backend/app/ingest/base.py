@@ -8,15 +8,18 @@ All ingestors follow the HistoryBuff data model:
 - factoids: Discrete historical claims (frame-independent)
 - factoid_placements: Temporal placement in reference frames
 - connections: Relationships between entities
+
+Uses Supabase REST API (not direct PostgreSQL) for reliable connectivity.
 """
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from datetime import date
 from typing import Any
 from uuid import UUID
 
-import asyncpg
+from supabase import create_client, Client
 
 from app.core.config import settings
 
@@ -28,8 +31,8 @@ class BaseIngestor(ABC):
 
     def __init__(self, data_dir: str = "./data"):
         self.data_dir = data_dir
-        self.pool: asyncpg.Pool | None = None
-        self.default_frame_id: UUID | None = None
+        self.supabase: Client | None = None
+        self.default_frame_id: str | None = None
         self.stats = {
             "sources_created": 0,
             "sources_skipped": 0,
@@ -45,30 +48,24 @@ class BaseIngestor(ABC):
         }
 
     async def connect(self) -> None:
-        """Establish database connection."""
-        self.pool = await asyncpg.create_pool(
-            settings.DATABASE_URL,
-            min_size=2,
-            max_size=10,
+        """Establish Supabase connection."""
+        self.supabase = create_client(
+            settings.SUPABASE_URL,
+            settings.SUPABASE_SERVICE_KEY,  # Use service key for full access
         )
-        logger.info("Database connection established")
+        logger.info("Supabase connection established")
 
         # Get default reference frame
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT id FROM reference_frames WHERE is_default = TRUE LIMIT 1"
-            )
-            if row:
-                self.default_frame_id = row["id"]
-                logger.info(f"Using default frame: {self.default_frame_id}")
-            else:
-                logger.warning("No default reference frame found!")
+        result = self.supabase.table("reference_frames").select("id").eq("is_default", True).limit(1).execute()
+        if result.data:
+            self.default_frame_id = result.data[0]["id"]
+            logger.info(f"Using default frame: {self.default_frame_id}")
+        else:
+            logger.warning("No default reference frame found!")
 
     async def close(self) -> None:
-        """Close database connection."""
-        if self.pool:
-            await self.pool.close()
-            logger.info("Database connection closed")
+        """Close connection (no-op for REST API)."""
+        logger.info("Supabase connection closed")
 
     @abstractmethod
     async def ingest(self) -> dict[str, Any]:
@@ -102,56 +99,44 @@ class BaseIngestor(ABC):
         Returns:
             Location UUID as string, or None if skipped.
         """
-        if not self.pool:
-            raise RuntimeError("Database not connected")
+        if not self.supabase:
+            raise RuntimeError("Supabase not connected")
 
         if not name_modern and not name_historical:
             self.stats["locations_skipped"] += 1
             return None
 
-        async with self.pool.acquire() as conn:
-            # Check for existing by external_id in name_historical
-            if external_id:
-                existing = await conn.fetchrow(
-                    """
-                    SELECT id FROM locations
-                    WHERE name_historical @> $1::jsonb
-                    LIMIT 1
-                    """,
-                    f'["{external_id}"]',
-                )
-                if existing:
-                    self.stats["locations_skipped"] += 1
-                    return str(existing["id"])
+        # Prepare historical names
+        hist_names = name_historical or []
+        if external_id and external_id not in hist_names:
+            hist_names.append(external_id)
 
-            # Prepare historical names
-            hist_names = name_historical or []
-            if external_id and external_id not in hist_names:
-                hist_names.append(external_id)
+        # Check for existing by external_id in name_historical
+        if external_id:
+            result = self.supabase.table("locations").select("id").contains("name_historical", [external_id]).limit(1).execute()
+            if result.data:
+                self.stats["locations_skipped"] += 1
+                return result.data[0]["id"]
 
-            import json
-            hist_names_json = json.dumps(hist_names)
+        # Insert new location
+        data = {
+            "name_modern": name_modern,
+            "name_historical": hist_names,
+            "location_type": location_type,
+            "location_subtype": location_subtype,
+            "coordinate_x": longitude,
+            "coordinate_y": latitude,
+            "uncertainty_radius_km": uncertainty_radius_km,
+            "description": description,
+        }
+        # Remove None values
+        data = {k: v for k, v in data.items() if v is not None}
 
-            result = await conn.fetchrow(
-                """
-                INSERT INTO locations (
-                    name_modern, name_historical, location_type, location_subtype,
-                    coordinate_x, coordinate_y, uncertainty_radius_km, description
-                )
-                VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7, $8)
-                RETURNING id
-                """,
-                name_modern,
-                hist_names_json,
-                location_type,
-                location_subtype,
-                longitude,
-                latitude,
-                uncertainty_radius_km,
-                description,
-            )
+        result = self.supabase.table("locations").insert(data).execute()
+        if result.data:
             self.stats["locations_created"] += 1
-            return str(result["id"])
+            return result.data[0]["id"]
+        return None
 
     # ==========================================
     # ACTORS
@@ -174,64 +159,49 @@ class BaseIngestor(ABC):
         Returns:
             Actor UUID as string, or None if skipped.
         """
-        if not self.pool:
-            raise RuntimeError("Database not connected")
+        if not self.supabase:
+            raise RuntimeError("Supabase not connected")
 
         if not name_primary or len(name_primary) < 2:
             self.stats["actors_skipped"] += 1
             return None
 
-        async with self.pool.acquire() as conn:
-            # Check for existing by external_id in aliases
-            if external_id:
-                existing = await conn.fetchrow(
-                    """
-                    SELECT id FROM actors
-                    WHERE name_aliases @> $1::jsonb
-                    LIMIT 1
-                    """,
-                    f'["{external_id}"]',
-                )
-                if existing:
-                    self.stats["actors_skipped"] += 1
-                    return str(existing["id"])
+        # Prepare aliases
+        aliases = name_aliases or []
+        if external_id and external_id not in aliases:
+            aliases.append(external_id)
 
-            # Check by name
-            existing = await conn.fetchrow(
-                "SELECT id FROM actors WHERE name_primary = $1 LIMIT 1",
-                name_primary,
-            )
-            if existing:
+        # Check for existing by external_id in aliases
+        if external_id:
+            result = self.supabase.table("actors").select("id").contains("name_aliases", [external_id]).limit(1).execute()
+            if result.data:
                 self.stats["actors_skipped"] += 1
-                return str(existing["id"])
+                return result.data[0]["id"]
 
-            # Prepare aliases
-            aliases = name_aliases or []
-            if external_id and external_id not in aliases:
-                aliases.append(external_id)
+        # Check by name
+        result = self.supabase.table("actors").select("id").eq("name_primary", name_primary).limit(1).execute()
+        if result.data:
+            self.stats["actors_skipped"] += 1
+            return result.data[0]["id"]
 
-            import json
-            aliases_json = json.dumps(aliases)
+        # Insert new actor
+        data = {
+            "name_primary": name_primary,
+            "name_aliases": aliases,
+            "actor_type": actor_type,
+            "actor_subtype": actor_subtype,
+            "raw_temporal_evidence": raw_temporal_evidence,
+            "description": description,
+            "known_biases": known_biases,
+        }
+        # Remove None values
+        data = {k: v for k, v in data.items() if v is not None}
 
-            result = await conn.fetchrow(
-                """
-                INSERT INTO actors (
-                    name_primary, name_aliases, actor_type, actor_subtype,
-                    raw_temporal_evidence, description, known_biases
-                )
-                VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7)
-                RETURNING id
-                """,
-                name_primary,
-                aliases_json,
-                actor_type,
-                actor_subtype,
-                raw_temporal_evidence,
-                description,
-                known_biases,
-            )
+        result = self.supabase.table("actors").insert(data).execute()
+        if result.data:
             self.stats["actors_created"] += 1
-            return str(result["id"])
+            return result.data[0]["id"]
+        return None
 
     # ==========================================
     # SOURCES
@@ -255,61 +225,51 @@ class BaseIngestor(ABC):
         Returns:
             Source UUID as string, or None if skipped.
         """
-        if not self.pool:
-            raise RuntimeError("Database not connected")
+        if not self.supabase:
+            raise RuntimeError("Supabase not connected")
 
         if not title:
             self.stats["sources_skipped"] += 1
             return None
 
-        async with self.pool.acquire() as conn:
-            # Check for existing by URL (if provided)
-            if digital_url:
-                existing = await conn.fetchrow(
-                    "SELECT id FROM sources WHERE digital_url = $1 LIMIT 1",
-                    digital_url,
-                )
-                if existing:
-                    self.stats["sources_skipped"] += 1
-                    return str(existing["id"])
-
-            # Check by title + author
-            if author_id:
-                existing = await conn.fetchrow(
-                    "SELECT id FROM sources WHERE title = $1 AND author_id = $2 LIMIT 1",
-                    title,
-                    author_id,
-                )
-            else:
-                existing = await conn.fetchrow(
-                    "SELECT id FROM sources WHERE title = $1 AND author_id IS NULL LIMIT 1",
-                    title,
-                )
-            if existing:
+        # Check for existing by URL (if provided)
+        if digital_url:
+            result = self.supabase.table("sources").select("id").eq("digital_url", digital_url).limit(1).execute()
+            if result.data:
                 self.stats["sources_skipped"] += 1
-                return str(existing["id"])
+                return result.data[0]["id"]
 
-            result = await conn.fetchrow(
-                """
-                INSERT INTO sources (
-                    title, source_type, genre, author_id,
-                    raw_dating_evidence, raw_period_covered,
-                    original_language, digital_url, extraction_status
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
-                RETURNING id
-                """,
-                title,
-                source_type,
-                genre,
-                author_id,
-                raw_dating_evidence,
-                raw_period_covered,
-                original_language,
-                digital_url,
-            )
+        # Check by title + author
+        query = self.supabase.table("sources").select("id").eq("title", title)
+        if author_id:
+            query = query.eq("author_id", author_id)
+        else:
+            query = query.is_("author_id", "null")
+        result = query.limit(1).execute()
+        if result.data:
+            self.stats["sources_skipped"] += 1
+            return result.data[0]["id"]
+
+        # Insert new source
+        data = {
+            "title": title,
+            "source_type": source_type,
+            "genre": genre,
+            "author_id": author_id,
+            "raw_dating_evidence": raw_dating_evidence,
+            "raw_period_covered": raw_period_covered,
+            "original_language": original_language,
+            "digital_url": digital_url,
+            "extraction_status": "pending",
+        }
+        # Remove None values
+        data = {k: v for k, v in data.items() if v is not None}
+
+        result = self.supabase.table("sources").insert(data).execute()
+        if result.data:
             self.stats["sources_created"] += 1
-            return str(result["id"])
+            return result.data[0]["id"]
+        return None
 
     # ==========================================
     # FACTOIDS
@@ -331,33 +291,31 @@ class BaseIngestor(ABC):
         Returns:
             Factoid UUID as string, or None if skipped.
         """
-        if not self.pool:
-            raise RuntimeError("Database not connected")
+        if not self.supabase:
+            raise RuntimeError("Supabase not connected")
 
         if not description or len(description) < 10:
             self.stats["factoids_skipped"] += 1
             return None
 
-        async with self.pool.acquire() as conn:
-            result = await conn.fetchrow(
-                """
-                INSERT INTO factoids (
-                    description, summary, factoid_type, layer,
-                    raw_observation, raw_observation_type, status
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                RETURNING id
-                """,
-                description,
-                summary,
-                factoid_type,
-                layer,
-                raw_observation,
-                raw_observation_type,
-                status,
-            )
+        # Insert new factoid
+        data = {
+            "description": description,
+            "summary": summary,
+            "factoid_type": factoid_type,
+            "layer": layer,
+            "raw_observation": raw_observation,
+            "raw_observation_type": raw_observation_type,
+            "status": status,
+        }
+        # Remove None values
+        data = {k: v for k, v in data.items() if v is not None}
+
+        result = self.supabase.table("factoids").insert(data).execute()
+        if result.data:
             self.stats["factoids_created"] += 1
-            return str(result["id"])
+            return result.data[0]["id"]
+        return None
 
     # ==========================================
     # FACTOID PLACEMENTS
@@ -380,38 +338,33 @@ class BaseIngestor(ABC):
         Returns:
             Placement UUID as string, or None if skipped.
         """
-        if not self.pool:
-            raise RuntimeError("Database not connected")
+        if not self.supabase:
+            raise RuntimeError("Supabase not connected")
 
-        frame_id = frame_id or str(self.default_frame_id)
+        frame_id = frame_id or self.default_frame_id
         if not frame_id:
             logger.warning("No frame_id and no default frame - skipping placement")
             return None
 
-        async with self.pool.acquire() as conn:
-            result = await conn.fetchrow(
-                """
-                INSERT INTO factoid_placements (
-                    factoid_id, frame_id, date_start, date_end,
-                    date_precision, placement_confidence, reasoning, placement_type
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                ON CONFLICT DO NOTHING
-                RETURNING id
-                """,
-                factoid_id,
-                frame_id,
-                date_start,
-                date_end,
-                date_precision,
-                placement_confidence,
-                reasoning,
-                placement_type,
-            )
-            if result:
-                self.stats["placements_created"] += 1
-                return str(result["id"])
-            return None
+        # Insert new placement
+        data = {
+            "factoid_id": factoid_id,
+            "frame_id": frame_id,
+            "date_start": date_start.isoformat() if date_start else None,
+            "date_end": date_end.isoformat() if date_end else None,
+            "date_precision": date_precision,
+            "placement_confidence": placement_confidence,
+            "reasoning": reasoning,
+            "placement_type": placement_type,
+        }
+        # Remove None values
+        data = {k: v for k, v in data.items() if v is not None}
+
+        result = self.supabase.table("factoid_placements").insert(data).execute()
+        if result.data:
+            self.stats["placements_created"] += 1
+            return result.data[0]["id"]
+        return None
 
     # ==========================================
     # FACTOID-SOURCE LINKS
@@ -425,21 +378,20 @@ class BaseIngestor(ABC):
         relevant_excerpt: str | None = None,
     ) -> None:
         """Link a factoid to its source."""
-        if not self.pool:
-            raise RuntimeError("Database not connected")
+        if not self.supabase:
+            raise RuntimeError("Supabase not connected")
 
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO factoid_sources (factoid_id, source_id, relationship, relevant_excerpt)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT DO NOTHING
-                """,
-                factoid_id,
-                source_id,
-                relationship,
-                relevant_excerpt,
-            )
+        data = {
+            "factoid_id": factoid_id,
+            "source_id": source_id,
+            "relationship": relationship,
+            "relevant_excerpt": relevant_excerpt,
+        }
+        # Remove None values
+        data = {k: v for k, v in data.items() if v is not None}
+
+        # Use upsert to avoid duplicates
+        self.supabase.table("factoid_sources").upsert(data, on_conflict="factoid_id,source_id").execute()
 
     # ==========================================
     # CONNECTIONS
@@ -456,30 +408,26 @@ class BaseIngestor(ABC):
         notes: str | None = None,
     ) -> str | None:
         """Create a connection between entities."""
-        if not self.pool:
-            raise RuntimeError("Database not connected")
+        if not self.supabase:
+            raise RuntimeError("Supabase not connected")
 
-        async with self.pool.acquire() as conn:
-            result = await conn.fetchrow(
-                """
-                INSERT INTO connections (
-                    from_entity_type, from_entity_id,
-                    to_entity_type, to_entity_id,
-                    connection_type, confidence, notes
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                RETURNING id
-                """,
-                from_entity_type,
-                from_entity_id,
-                to_entity_type,
-                to_entity_id,
-                connection_type,
-                confidence,
-                notes,
-            )
+        data = {
+            "from_entity_type": from_entity_type,
+            "from_entity_id": from_entity_id,
+            "to_entity_type": to_entity_type,
+            "to_entity_id": to_entity_id,
+            "connection_type": connection_type,
+            "confidence": confidence,
+            "notes": notes,
+        }
+        # Remove None values
+        data = {k: v for k, v in data.items() if v is not None}
+
+        result = self.supabase.table("connections").insert(data).execute()
+        if result.data:
             self.stats["connections_created"] += 1
-            return str(result["id"])
+            return result.data[0]["id"]
+        return None
 
     # ==========================================
     # UTILITIES

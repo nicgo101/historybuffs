@@ -11,6 +11,7 @@ asyncpg>=0.29.0
 sqlalchemy[asyncio]>=2.0.25
 alembic>=1.13.0
 pgvector>=0.2.4
+supabase>=2.0.0  # REST API client
 
 # Task queue
 celery>=5.3.6
