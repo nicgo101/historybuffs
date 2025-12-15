@@ -1,0 +1,160 @@
+# HistoryBuff Backend - Docker Compose for Hetzner Deployment
+#
+# This runs on your Hetzner VPS (8GB RAM):
+# - Caddy (reverse proxy, auto SSL)
+# - FastAPI (API server)
+# - Redis (Celery broker)
+# - Celery workers (extraction pipelines)
+#
+# Frontend runs on Vercel, Database on Supabase (free tiers)
+#
+# Usage:
+#   cp .env.example .env  # Configure your environment
+#   docker compose up -d
+#   docker compose logs -f
+
+services:
+  # ===========================================
+  # REVERSE PROXY - Auto SSL via Let's Encrypt
+  # ===========================================
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    networks:
+      - historybuff
+
+  # ===========================================
+  # API SERVER - FastAPI
+  # ===========================================
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ENVIRONMENT=production
+    expose:
+      - "8000"
+    depends_on:
+      - redis
+    networks:
+      - historybuff
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ===========================================
+  # MESSAGE BROKER - Redis
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 100mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - historybuff
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # CELERY WORKER - Extraction Pipelines
+  # ===========================================
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A app.worker worker --loglevel=info --concurrency=2
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ENVIRONMENT=production
+      # Embedding model - runs locally
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+    depends_on:
+      - redis
+    networks:
+      - historybuff
+    # Memory limit to prevent OOM (leave room for other services)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ===========================================
+  # CELERY BEAT - Scheduled Tasks (optional)
+  # ===========================================
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A app.worker beat --loglevel=info
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      - redis
+    networks:
+      - historybuff
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ===========================================
+  # FLOWER - Celery Monitoring (optional)
+  # Uncomment to enable task monitoring UI
+  # ===========================================
+  # flower:
+  #   image: mher/flower:2.0
+  #   restart: unless-stopped
+  #   command: celery --broker=redis://redis:6379/0 flower --port=5555
+  #   environment:
+  #     - FLOWER_BASIC_AUTH=${FLOWER_USER}:${FLOWER_PASSWORD}
+  #   ports:
+  #     - "5555:5555"
+  #   depends_on:
+  #     - redis
+  #   networks:
+  #     - historybuff
+
+networks:
+  historybuff:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  redis_data:

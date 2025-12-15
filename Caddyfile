@@ -1,0 +1,49 @@
+# Caddyfile - Reverse Proxy Configuration
+#
+# Caddy automatically handles:
+# - SSL certificates (Let's Encrypt)
+# - Certificate renewal
+# - HTTP to HTTPS redirect
+# - HTTP/2
+#
+# Replace api.yourdomain.com with your actual domain
+
+api.yourdomain.com {
+    # Proxy all requests to FastAPI
+    reverse_proxy api:8000
+
+    # Enable compression
+    encode gzip zstd
+
+    # Security headers
+    header {
+        # CORS headers (adjust origins for your frontend)
+        Access-Control-Allow-Origin https://yourdomain.com
+        Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        Access-Control-Allow-Headers "Authorization, Content-Type"
+
+        # Security headers
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+
+        # Remove server identification
+        -Server
+    }
+
+    # Handle CORS preflight requests
+    @options method OPTIONS
+    respond @options 204
+
+    # Logging
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+}
+
+# Optional: Flower monitoring (if enabled)
+# Protect with basic auth in docker-compose.yml
+# flower.yourdomain.com {
+#     reverse_proxy flower:5555
+# }
