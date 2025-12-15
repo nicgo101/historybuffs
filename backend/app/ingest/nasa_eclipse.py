@@ -29,10 +29,9 @@ logger = logging.getLogger(__name__)
 
 def make_date_string(year: int, month: int, day: int) -> str:
     """
-    Create an ISO date string that handles BCE years.
+    Create a date string that handles BCE years for PostgreSQL.
 
-    PostgreSQL supports dates like '-0584-05-28' for BCE years.
-    Python's date class doesn't support negative years, so we format manually.
+    PostgreSQL expects BCE dates in format: '0584-05-28 BC'
 
     Args:
         year: Year (negative for BCE, e.g., -584 for 585 BCE)
@@ -40,12 +39,12 @@ def make_date_string(year: int, month: int, day: int) -> str:
         day: Day (1-31)
 
     Returns:
-        ISO format date string (e.g., "-0584-05-28" or "0029-11-24")
+        PostgreSQL date string (e.g., "0584-05-28 BC" or "0029-11-24")
     """
     if year <= 0:
-        # BCE year - format with negative sign and 4-digit year
-        # Note: Historical convention is year 1 BCE = year 0 in astronomical, = year -1 in Python
-        return f"-{abs(year):04d}-{month:02d}-{day:02d}"
+        # BCE year - format with BC suffix for PostgreSQL
+        # Note: Historical convention is year 1 BCE = year 0 in astronomical
+        return f"{abs(year):04d}-{month:02d}-{day:02d} BC"
     else:
         return f"{year:04d}-{month:02d}-{day:02d}"
 
@@ -424,11 +423,11 @@ class NASAEclipseIngestor(BaseIngestor):
         }
 
     def _format_date_display(self, date_str: str) -> str:
-        """Format ISO date string with BCE/CE notation for display."""
-        # Parse ISO date string like "-0584-05-28" or "0029-11-24"
-        if date_str.startswith("-"):
+        """Format PostgreSQL date string with BCE/CE notation for display."""
+        # Parse PostgreSQL date string like "0584-05-28 BC" or "0029-11-24"
+        if date_str.endswith(" BC"):
             # BCE date
-            parts = date_str[1:].split("-")
+            parts = date_str.replace(" BC", "").split("-")
             year = int(parts[0])
             return f"{year} BCE"
         else:
