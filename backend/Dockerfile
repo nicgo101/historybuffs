@@ -52,9 +52,9 @@ ENV PATH="/home/app/.local/bin:$PATH"
 # Copy application code
 COPY --chown=app:app . .
 
-# Pre-download embedding model (so it's cached in image)
-# This runs at build time, not runtime
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+# Pre-download embedding model - disabled for faster builds
+# Uncomment when sentence-transformers is enabled in requirements.txt
+# RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 # Expose port
 EXPOSE 8000

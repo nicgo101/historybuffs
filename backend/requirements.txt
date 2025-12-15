@@ -21,8 +21,8 @@ flower>=2.0.1
 # AI/ML
 anthropic>=0.18.0
 openai>=1.10.0
-sentence-transformers>=2.3.0
-torch>=2.1.0  # CPU only, for sentence-transformers
+# sentence-transformers>=2.3.0  # Disabled for faster builds - enable when needed
+# torch>=2.1.0  # CPU only, for sentence-transformers
 
 # Extraction
 pytesseract>=0.3.10
