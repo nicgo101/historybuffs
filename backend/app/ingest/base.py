@@ -325,8 +325,8 @@ class BaseIngestor(ABC):
         self,
         factoid_id: str,
         frame_id: str | None = None,
-        date_start: date | None = None,
-        date_end: date | None = None,
+        date_start: date | str | None = None,
+        date_end: date | str | None = None,
         date_precision: str = "year",
         placement_confidence: float = 0.8,
         reasoning: str | None = None,
@@ -334,6 +334,10 @@ class BaseIngestor(ABC):
     ) -> str | None:
         """
         Create a factoid placement in a reference frame.
+
+        Args:
+            date_start: Can be a date object or ISO string (for BCE dates like "-0584-05-28")
+            date_end: Can be a date object or ISO string (for BCE dates)
 
         Returns:
             Placement UUID as string, or None if skipped.
@@ -346,12 +350,20 @@ class BaseIngestor(ABC):
             logger.warning("No frame_id and no default frame - skipping placement")
             return None
 
+        # Handle date conversion - support both date objects and strings
+        def format_date(d):
+            if d is None:
+                return None
+            if isinstance(d, str):
+                return d  # Already a string (for BCE dates)
+            return d.isoformat()
+
         # Insert new placement
         data = {
             "factoid_id": factoid_id,
             "frame_id": frame_id,
-            "date_start": date_start.isoformat() if date_start else None,
-            "date_end": date_end.isoformat() if date_end else None,
+            "date_start": format_date(date_start),
+            "date_end": format_date(date_end),
             "date_precision": date_precision,
             "placement_confidence": placement_confidence,
             "reasoning": reasoning,

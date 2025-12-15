@@ -26,6 +26,29 @@ from .base import BaseIngestor
 
 logger = logging.getLogger(__name__)
 
+
+def make_date_string(year: int, month: int, day: int) -> str:
+    """
+    Create an ISO date string that handles BCE years.
+
+    PostgreSQL supports dates like '-0584-05-28' for BCE years.
+    Python's date class doesn't support negative years, so we format manually.
+
+    Args:
+        year: Year (negative for BCE, e.g., -584 for 585 BCE)
+        month: Month (1-12)
+        day: Day (1-31)
+
+    Returns:
+        ISO format date string (e.g., "-0584-05-28" or "0029-11-24")
+    """
+    if year <= 0:
+        # BCE year - format with negative sign and 4-digit year
+        # Note: Historical convention is year 1 BCE = year 0 in astronomical, = year -1 in Python
+        return f"-{abs(year):04d}-{month:02d}-{day:02d}"
+    else:
+        return f"{year:04d}-{month:02d}-{day:02d}"
+
 # NASA Eclipse catalog URLs (for reference - data should be downloaded)
 # Solar: https://eclipse.gsfc.nasa.gov/SEcat5/SE-1999--1900.html
 # Lunar: https://eclipse.gsfc.nasa.gov/LEcat5/LE-1999--1900.html
@@ -112,10 +135,10 @@ class NASAEclipseIngestor(BaseIngestor):
         anchor chronology.
         """
         # Historically significant eclipses (well-documented in ancient sources)
+        # Using make_date_string() for BCE dates since Python date() doesn't support them
         historical_eclipses = [
-            # BCE dates use negative years internally but display as BCE
             {
-                "date": date(-584, 5, 28),  # 585 BCE (year 0 doesn't exist)
+                "date": make_date_string(-584, 5, 28),  # 585 BCE
                 "type": "T",
                 "name": "Eclipse of Thales",
                 "description": "Solar eclipse predicted by Thales of Miletus. Said to have stopped the battle between Lydians and Medes.",
@@ -126,7 +149,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Herodotus, Histories 1.74: 'Day was turned into night'",
             },
             {
-                "date": date(-430, 8, 3),  # 431 BCE
+                "date": make_date_string(-430, 8, 3),  # 431 BCE
                 "type": "A",
                 "name": "Eclipse at start of Peloponnesian War",
                 "description": "Annular solar eclipse at the start of the Peloponnesian War, recorded by Thucydides.",
@@ -137,7 +160,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Thucydides 2.28: 'The sun was eclipsed'",
             },
             {
-                "date": date(-309, 8, 15),  # 310 BCE
+                "date": make_date_string(-309, 8, 15),  # 310 BCE
                 "type": "T",
                 "name": "Eclipse of Agathocles",
                 "description": "Total solar eclipse observed as Agathocles sailed from Syracuse to Africa.",
@@ -148,7 +171,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Diodorus Siculus 20.5",
             },
             {
-                "date": date(-189, 3, 14),  # 190 BCE
+                "date": make_date_string(-189, 3, 14),  # 190 BCE
                 "type": "A",
                 "name": "Eclipse before Battle of Magnesia",
                 "description": "Annular eclipse recorded before the Roman-Seleucid Battle of Magnesia.",
@@ -159,7 +182,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Livy 37.4.4",
             },
             {
-                "date": date(-167, 6, 21),  # 168 BCE
+                "date": make_date_string(-167, 6, 21),  # 168 BCE
                 "type": "T+",
                 "name": "Eclipse before Battle of Pydna",
                 "description": "Total lunar eclipse the night before the Battle of Pydna. Sulpicius Gallus predicted it.",
@@ -170,7 +193,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Livy 44.37.5-9; Pliny NH 2.53",
             },
             {
-                "date": date(-43, 5, 24),  # 44 BCE
+                "date": make_date_string(-43, 5, 24),  # 44 BCE
                 "type": "P",
                 "name": "Eclipse after Caesar's assassination",
                 "description": "Partial solar eclipse following Julius Caesar's assassination. Associated with 'Caesar's Comet'.",
@@ -181,7 +204,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Multiple Roman sources mention darkened sun",
             },
             {
-                "date": date(29, 11, 24),
+                "date": make_date_string(29, 11, 24),  # 29 CE
                 "type": "T",
                 "name": "Eclipse near Crucifixion date",
                 "description": "Total solar eclipse visible in the Mediterranean region, one of several candidates for the 'darkness' at the Crucifixion.",
@@ -192,7 +215,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Phlegon of Tralles fragment preserved in Origen",
             },
             {
-                "date": date(59, 4, 30),
+                "date": make_date_string(59, 4, 30),  # 59 CE
                 "type": "A",
                 "name": "Eclipse in reign of Nero",
                 "description": "Annular solar eclipse recorded during Nero's reign.",
@@ -203,7 +226,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Tacitus Annals 14.12",
             },
             {
-                "date": date(71, 3, 20),
+                "date": make_date_string(71, 3, 20),  # 71 CE
                 "type": "T",
                 "name": "Eclipse during Jewish War",
                 "description": "Total solar eclipse during the Roman siege of Jerusalem.",
@@ -214,7 +237,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Josephus references",
             },
             {
-                "date": date(364, 6, 16),
+                "date": make_date_string(364, 6, 16),  # 364 CE
                 "type": "T",
                 "name": "Eclipse of Julian's Persian campaign",
                 "description": "Total solar eclipse during Emperor Julian's Persian campaign.",
@@ -225,7 +248,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Ammianus Marcellinus 25.10.2",
             },
             {
-                "date": date(484, 1, 14),
+                "date": make_date_string(484, 1, 14),  # 484 CE
                 "type": "T",
                 "name": "Eclipse recorded in Chinese sources",
                 "description": "Total solar eclipse recorded in both Roman and Chinese sources.",
@@ -236,7 +259,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Chinese dynastic histories",
             },
             {
-                "date": date(590, 10, 4),
+                "date": make_date_string(590, 10, 4),  # 590 CE
                 "type": "T",
                 "name": "Eclipse during Gregory of Tours' time",
                 "description": "Total solar eclipse recorded by Gregory of Tours.",
@@ -247,7 +270,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Gregory of Tours, History of the Franks 10.23",
             },
             {
-                "date": date(840, 5, 5),
+                "date": make_date_string(840, 5, 5),  # 840 CE
                 "type": "T",
                 "name": "Eclipse and death of Louis the Pious",
                 "description": "Total solar eclipse shortly before the death of Louis the Pious. Seen as an omen.",
@@ -258,7 +281,7 @@ class NASAEclipseIngestor(BaseIngestor):
                 "raw_observation": "Multiple Carolingian sources",
             },
             {
-                "date": date(1133, 8, 2),
+                "date": make_date_string(1133, 8, 2),  # 1133 CE
                 "type": "T",
                 "name": "King Henry's Eclipse",
                 "description": "Total solar eclipse associated with the death of King Henry I of England.",
@@ -284,11 +307,12 @@ class NASAEclipseIngestor(BaseIngestor):
     async def _create_eclipse_factoid(self, eclipse: dict) -> None:
         """Create a factoid and placement for an eclipse."""
         eclipse_type = ECLIPSE_TYPES.get(eclipse["type"], "Eclipse")
+        date_str = eclipse["date"]  # Already a string from make_date_string()
 
         # Create the factoid
         factoid_id = await self.create_factoid(
             description=f"{eclipse['name']}: {eclipse['description']}",
-            summary=f"{eclipse_type} on {self._format_date(eclipse['date'])}",
+            summary=f"{eclipse_type} on {self._format_date_display(date_str)}",
             factoid_type="event",
             layer=eclipse.get("layer", "documented"),
             raw_observation=eclipse.get("raw_observation"),
@@ -299,14 +323,14 @@ class NASAEclipseIngestor(BaseIngestor):
         if not factoid_id:
             return
 
-        # Create placement with the precise date
+        # Create placement with the precise date (string format for BCE support)
         await self.create_placement(
             factoid_id=factoid_id,
-            date_start=eclipse["date"],
-            date_end=eclipse["date"],
+            date_start=date_str,
+            date_end=date_str,
             date_precision="exact",
             placement_confidence=eclipse.get("confidence", 0.95),
-            reasoning=f"Astronomically calculated eclipse date from NASA GSFC",
+            reasoning="Astronomically calculated eclipse date from NASA GSFC",
             placement_type="system",
         )
 
@@ -399,8 +423,15 @@ class NASAEclipseIngestor(BaseIngestor):
             "layer": "documented",
         }
 
-    def _format_date(self, d: date) -> str:
-        """Format date with BCE/CE notation."""
-        if d.year <= 0:
-            return f"{abs(d.year - 1)} BCE"  # Adjust for no year 0
-        return f"{d.year} CE"
+    def _format_date_display(self, date_str: str) -> str:
+        """Format ISO date string with BCE/CE notation for display."""
+        # Parse ISO date string like "-0584-05-28" or "0029-11-24"
+        if date_str.startswith("-"):
+            # BCE date
+            parts = date_str[1:].split("-")
+            year = int(parts[0])
+            return f"{year} BCE"
+        else:
+            parts = date_str.split("-")
+            year = int(parts[0])
+            return f"{year} CE"
