@@ -1,0 +1,336 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * HistoryBuff Design System: "Archival Moderne"
+ * A blend of editorial sophistication with antiquarian warmth.
+ * Scholarly, rich, modern precision.
+ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-body);
+  --font-serif: var(--font-display);
+  --font-mono: var(--font-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-gold: var(--gold);
+  --color-gold-foreground: var(--gold-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  /* Archival Moderne - Light Theme */
+  /* Warm ivory/parchment background */
+  --background: oklch(0.975 0.008 85);
+  /* Deep ink foreground */
+  --foreground: oklch(0.22 0.02 45);
+
+  /* Cards: slightly warmer than background */
+  --card: oklch(0.99 0.005 85);
+  --card-foreground: oklch(0.22 0.02 45);
+
+  --popover: oklch(0.99 0.005 85);
+  --popover-foreground: oklch(0.22 0.02 45);
+
+  /* Primary: Deep burgundy/wine */
+  --primary: oklch(0.35 0.12 25);
+  --primary-foreground: oklch(0.98 0.005 85);
+
+  /* Secondary: Warm sage */
+  --secondary: oklch(0.92 0.015 85);
+  --secondary-foreground: oklch(0.30 0.02 45);
+
+  /* Muted: Sepia tones */
+  --muted: oklch(0.94 0.012 75);
+  --muted-foreground: oklch(0.45 0.03 55);
+
+  /* Accent: Antique gold */
+  --accent: oklch(0.75 0.14 75);
+  --accent-foreground: oklch(0.25 0.04 55);
+
+  /* Gold for confidence scores */
+  --gold: oklch(0.72 0.15 75);
+  --gold-foreground: oklch(0.25 0.04 55);
+
+  --destructive: oklch(0.55 0.22 25);
+
+  /* Borders: warm, subtle */
+  --border: oklch(0.88 0.02 75);
+  --input: oklch(0.90 0.015 75);
+  --ring: oklch(0.35 0.12 25);
+
+  /* Chart colors - rich, scholarly palette */
+  --chart-1: oklch(0.35 0.12 25);  /* burgundy */
+  --chart-2: oklch(0.72 0.15 75);  /* gold */
+  --chart-3: oklch(0.45 0.10 160); /* forest */
+  --chart-4: oklch(0.55 0.12 250); /* slate blue */
+  --chart-5: oklch(0.60 0.14 35);  /* terracotta */
+
+  /* Sidebar */
+  --sidebar: oklch(0.97 0.01 85);
+  --sidebar-foreground: oklch(0.22 0.02 45);
+  --sidebar-primary: oklch(0.35 0.12 25);
+  --sidebar-primary-foreground: oklch(0.98 0.005 85);
+  --sidebar-accent: oklch(0.94 0.012 75);
+  --sidebar-accent-foreground: oklch(0.30 0.02 45);
+  --sidebar-border: oklch(0.88 0.02 75);
+  --sidebar-ring: oklch(0.35 0.12 25);
+}
+
+.dark {
+  /* Archival Moderne - Dark Theme */
+  /* Deep warm charcoal */
+  --background: oklch(0.18 0.015 55);
+  /* Warm ivory text */
+  --foreground: oklch(0.92 0.01 85);
+
+  /* Cards: slightly lighter than background */
+  --card: oklch(0.22 0.015 55);
+  --card-foreground: oklch(0.92 0.01 85);
+
+  --popover: oklch(0.22 0.015 55);
+  --popover-foreground: oklch(0.92 0.01 85);
+
+  /* Primary: Warm rose/burgundy (lighter for dark mode) */
+  --primary: oklch(0.70 0.12 25);
+  --primary-foreground: oklch(0.15 0.02 45);
+
+  /* Secondary */
+  --secondary: oklch(0.28 0.015 55);
+  --secondary-foreground: oklch(0.90 0.01 85);
+
+  /* Muted */
+  --muted: oklch(0.28 0.012 55);
+  --muted-foreground: oklch(0.65 0.02 75);
+
+  /* Accent: Gold (brighter for dark mode) */
+  --accent: oklch(0.78 0.16 75);
+  --accent-foreground: oklch(0.18 0.02 55);
+
+  /* Gold */
+  --gold: oklch(0.78 0.16 75);
+  --gold-foreground: oklch(0.18 0.02 55);
+
+  --destructive: oklch(0.65 0.20 25);
+
+  /* Borders */
+  --border: oklch(0.32 0.015 55);
+  --input: oklch(0.30 0.012 55);
+  --ring: oklch(0.70 0.12 25);
+
+  /* Chart colors - dark mode adjusted */
+  --chart-1: oklch(0.70 0.12 25);
+  --chart-2: oklch(0.78 0.16 75);
+  --chart-3: oklch(0.60 0.12 160);
+  --chart-4: oklch(0.65 0.12 250);
+  --chart-5: oklch(0.68 0.14 35);
+
+  /* Sidebar */
+  --sidebar: oklch(0.20 0.015 55);
+  --sidebar-foreground: oklch(0.92 0.01 85);
+  --sidebar-primary: oklch(0.70 0.12 25);
+  --sidebar-primary-foreground: oklch(0.15 0.02 45);
+  --sidebar-accent: oklch(0.28 0.012 55);
+  --sidebar-accent-foreground: oklch(0.90 0.01 85);
+  --sidebar-border: oklch(0.32 0.015 55);
+  --sidebar-ring: oklch(0.70 0.12 25);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "kern" 1, "liga" 1;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Container with proper padding */
+  .container {
+    width: 100%;
+    max-width: 1280px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+  }
+
+  /* Elegant typography defaults */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-serif), ui-serif, Georgia, serif;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+
+  /* Subtle selection colors */
+  ::selection {
+    background: oklch(0.72 0.15 75 / 0.3);
+  }
+}
+
+@layer utilities {
+  /* Editorial divider */
+  .divider-ornament {
+    @apply relative flex items-center justify-center my-12;
+  }
+  .divider-ornament::before,
+  .divider-ornament::after {
+    content: '';
+    @apply flex-1 h-px bg-border;
+  }
+  .divider-ornament::before {
+    @apply mr-6;
+  }
+  .divider-ornament::after {
+    @apply ml-6;
+  }
+
+  /* Gold shimmer for confidence scores */
+  .gold-shimmer {
+    background: linear-gradient(
+      120deg,
+      oklch(0.72 0.15 75) 0%,
+      oklch(0.82 0.12 85) 50%,
+      oklch(0.72 0.15 75) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 3s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0%, 100% { background-position: 200% 0; }
+    50% { background-position: -200% 0; }
+  }
+
+  /* Subtle paper texture overlay */
+  .paper-texture {
+    position: relative;
+  }
+  .paper-texture::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0.03;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  }
+
+  /* Elegant card hover effect */
+  .card-hover {
+    @apply transition-all duration-300 ease-out;
+  }
+  .card-hover:hover {
+    @apply shadow-lg -translate-y-1;
+    box-shadow:
+      0 4px 6px -1px oklch(0 0 0 / 0.05),
+      0 10px 15px -3px oklch(0 0 0 / 0.08),
+      0 20px 25px -5px oklch(0 0 0 / 0.05);
+  }
+
+  /* Staggered animation delays */
+  .stagger-1 { animation-delay: 0.1s; }
+  .stagger-2 { animation-delay: 0.2s; }
+  .stagger-3 { animation-delay: 0.3s; }
+  .stagger-4 { animation-delay: 0.4s; }
+  .stagger-5 { animation-delay: 0.5s; }
+  .stagger-6 { animation-delay: 0.6s; }
+
+  /* Fade in up animation */
+  .animate-fade-in-up {
+    animation: fadeInUp 0.6s ease-out forwards;
+    opacity: 0;
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Confidence score ring */
+  .confidence-ring {
+    @apply relative inline-flex items-center justify-center;
+  }
+  .confidence-ring::before {
+    content: '';
+    @apply absolute inset-0 rounded-full;
+    background: conic-gradient(
+      var(--gold) calc(var(--confidence) * 1%),
+      oklch(0 0 0 / 0.1) calc(var(--confidence) * 1%)
+    );
+    mask: radial-gradient(transparent 60%, black 61%);
+    -webkit-mask: radial-gradient(transparent 60%, black 61%);
+  }
+
+  /* Text gradient for headings */
+  .text-gradient-gold {
+    background: linear-gradient(135deg, oklch(0.72 0.15 75), oklch(0.62 0.12 45));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Serif display text - use font-serif utility instead */
+
+  /* Decorative quote marks */
+  .pull-quote {
+    @apply relative pl-8 border-l-4 border-accent italic;
+  }
+  .pull-quote::before {
+    content: '"';
+    @apply absolute left-2 -top-2 text-5xl text-accent/30 font-serif;
+  }
+}

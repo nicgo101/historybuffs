@@ -16,7 +16,6 @@ celery_app = Celery(
     "historybuff",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["app.tasks.extraction", "app.tasks.embeddings"],
 )
 
 # Celery configuration
@@ -37,23 +36,9 @@ celery_app.conf.update(
     # Result backend
     result_expires=86400,  # Results expire after 24 hours
 
-    # Task routing (optional, for future scaling)
-    task_routes={
-        "app.tasks.extraction.*": {"queue": "extraction"},
-        "app.tasks.embeddings.*": {"queue": "embeddings"},
-    },
-
     # Retry settings
     task_acks_late=True,  # Acknowledge after completion (safer)
     task_reject_on_worker_lost=True,
-
-    # Beat schedule (for periodic tasks)
-    beat_schedule={
-        "cleanup-old-pipeline-runs": {
-            "task": "app.tasks.maintenance.cleanup_old_runs",
-            "schedule": 86400.0,  # Daily
-        },
-    },
 )
 
 

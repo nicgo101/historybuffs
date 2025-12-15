@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "Bash(git branch:*)",
+      "Bash(git remote add:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(timeout 10 ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@65.108.90.242 echo \"connected\")",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(curl:*)",
+      "Bash(dig:*)",
+      "Bash(nslookup:*)",
+      "Bash(npx shadcn@latest add button card input label form dialog dropdown-menu avatar badge separator tabs toast sonner sheet navigation-menu scroll-area skeleton textarea select -y)",
+      "Bash(npx shadcn@latest add button card input label form dialog dropdown-menu avatar badge separator tabs sonner sheet navigation-menu scroll-area skeleton textarea select -y)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(find:*)",
+      "Bash(head:*)",
+      "Bash(chmod:*)",
+      "Bash(cat:*)",
+      "Bash(pip3 show:*)",
+      "Bash(pip3 install:*)",
+      "Bash(python3:*)",
+      "Bash(source venv/bin/activate)",
+      "Bash(pip install:*)",
+      "Bash(python scripts/ingest.py:*)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ],
+  "disabledMcpjsonServers": [
+    "browsermcp",
+    "codesearcher"
+  ]
+}
