@@ -134,13 +134,9 @@ class BaseIngestor(ABC):
         # Prepare historical names - ensure it's a list
         hist_names = name_historical or []
 
-        # Check for existing by external_id
-        if external_id:
-            # Search in name_historical for external_id (could be string or in structured object)
-            result = self.supabase.table("locations").select("id").contains("name_historical", [external_id]).limit(1).execute()
-            if result.data:
-                self.stats["locations_skipped"] += 1
-                return result.data[0]["id"]
+        # Note: Deduplication by external_id in JSONB arrays is complex via REST API.
+        # For MVP, we skip the check and rely on the database handling duplicates.
+        # Future: Add a dedicated external_id column for efficient deduplication.
 
         # Insert new location
         data = {

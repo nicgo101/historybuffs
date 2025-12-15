@@ -1,24 +1,23 @@
 """
-Pleiades Gazetteer data ingestor.
+Pleiades Gazetteer data ingestor (JSON format).
 
 Pleiades is a community-built gazetteer of ancient places.
 https://pleiades.stoa.org/
 
-This ingestor creates LOCATIONS ONLY - no factoids.
-The Pleiades data maps directly to our locations table with the extended
-geographic schema from 004_geographic_extensions.sql.
+This ingestor uses the comprehensive JSON dump which includes:
+- Full names with attestations, languages, date ranges
+- Multiple location variants with coordinates and accuracy
+- Connections between places
+- References and citations
 
-Implements:
-- Structured historical names with time periods
-- Uncertainty notes from precision ratings
-- Location changes from time period data
-- Bounding box to boundary_geojson for areas
-- Terrain notes from feature types
+Creates: locations (with extended geographic schema)
+Does NOT create: factoids, sources, actors
 """
 
-import csv
 import gzip
+import json
 import logging
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -26,45 +25,33 @@ from tqdm import tqdm
 
 from .base import BaseIngestor
 
-logger = logging.getLogger(__name__)
 
-# Pleiades time period mappings to approximate date ranges
-# Based on https://pleiades.stoa.org/vocabularies/time-periods
-PLEIADES_PERIODS = {
-    "archaic": {"start": "-0800", "end": "-0480", "label": "Archaic Greek"},
-    "classical": {"start": "-0480", "end": "-0323", "label": "Classical Greek"},
-    "hellenistic-republican": {"start": "-0323", "end": "-0031", "label": "Hellenistic/Republican"},
-    "roman": {"start": "-0031", "end": "0300", "label": "Roman Imperial"},
-    "late-antique": {"start": "0300", "end": "0640", "label": "Late Antique"},
-    "mediaeval-byzantine": {"start": "0640", "end": "1453", "label": "Medieval/Byzantine"},
-    "modern": {"start": "1453", "end": None, "label": "Modern"},
-    # Earlier periods
-    "neolithic": {"start": "-7000", "end": "-3200", "label": "Neolithic"},
-    "bronze-age": {"start": "-3200", "end": "-1200", "label": "Bronze Age"},
-    "early-bronze-age": {"start": "-3200", "end": "-2000", "label": "Early Bronze Age"},
-    "middle-bronze-age": {"start": "-2000", "end": "-1600", "label": "Middle Bronze Age"},
-    "late-bronze-age": {"start": "-1600", "end": "-1200", "label": "Late Bronze Age"},
-    "iron-age": {"start": "-1200", "end": "-0800", "label": "Iron Age"},
-    # Regional variants
-    "achaemenid": {"start": "-0550", "end": "-0330", "label": "Achaemenid Persian"},
-    "ptolemaic": {"start": "-0323", "end": "-0031", "label": "Ptolemaic Egypt"},
-    "sassanid": {"start": "0224", "end": "0651", "label": "Sassanid Persian"},
-}
+def convert_decimals(obj):
+    """Recursively convert Decimal objects to float for JSON serialization."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_decimals(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_decimals(item) for item in obj]
+    return obj
+
+logger = logging.getLogger(__name__)
 
 
 class PleiadesIngestor(BaseIngestor):
     """
-    Ingestor for Pleiades ancient places gazetteer.
+    Ingestor for Pleiades ancient places gazetteer (JSON format).
 
     Creates: locations (with extended geographic schema)
     Does NOT create: factoids, sources, actors
 
     Uses the extended schema fields:
-    - name_historical: Structured with period_start/period_end
-    - uncertainty_notes: From Pleiades precision
-    - location_changes: From time periods
-    - terrain_notes: From feature types
-    - boundary_geojson: From bounding box (for areas)
+    - name_historical: Structured names with languages, periods, attestations
+    - uncertainty_notes: From accuracy values and location precision
+    - location_changes: From location variants with different date ranges
+    - terrain_notes: From place types
+    - boundary_geojson: From bbox
     """
 
     def get_source_name(self) -> str:
@@ -72,7 +59,7 @@ class PleiadesIngestor(BaseIngestor):
 
     async def ingest(self, limit: int | None = None) -> dict[str, Any]:
         """
-        Ingest Pleiades places as locations.
+        Ingest Pleiades places as locations from JSON dump.
 
         Args:
             limit: Optional limit on number of places to ingest (for testing).
@@ -83,24 +70,23 @@ class PleiadesIngestor(BaseIngestor):
         await self.connect()
 
         try:
-            # Find the CSV file
             data_path = Path(self.data_dir)
-            csv_file = self._find_csv_file(data_path)
+            json_file = self._find_json_file(data_path)
 
-            self.log_progress(f"Found file: {csv_file}")
+            self.log_progress(f"Found file: {json_file}")
+            self.log_progress("Loading JSON data (this may take a moment)...")
 
-            # Count rows
-            rows = self._load_rows(csv_file)
+            places = self._load_places(json_file)
             if limit:
-                rows = rows[:limit]
+                places = places[:limit]
 
-            self.log_progress(f"Processing {len(rows)} places...")
+            self.log_progress(f"Processing {len(places)} places...")
 
-            for row in tqdm(rows, desc="Pleiades locations"):
+            for place in tqdm(places, desc="Pleiades locations"):
                 try:
-                    await self._process_place(row)
+                    await self._process_place(place)
                 except Exception as e:
-                    self.log_error(f"Failed to process place {row.get('id', 'unknown')}", e)
+                    self.log_error(f"Failed to process place {place.get('id', 'unknown')}", e)
 
             self.log_progress("Ingestion complete!")
             return self.get_stats()
@@ -108,74 +94,110 @@ class PleiadesIngestor(BaseIngestor):
         finally:
             await self.close()
 
-    def _find_csv_file(self, data_path: Path) -> Path:
-        """Find Pleiades CSV file."""
-        # Check for uncompressed
-        csv_files = list(data_path.glob("pleiades*.csv"))
-        csv_files = [f for f in csv_files if not f.name.endswith('.gz')]
-        if csv_files:
-            return csv_files[0]
-
-        # Check for gzipped
-        gz_files = list(data_path.glob("pleiades*.csv.gz"))
+    def _find_json_file(self, data_path: Path) -> Path:
+        """Find Pleiades JSON file."""
+        # Check for gzipped JSON (preferred)
+        gz_files = list(data_path.glob("pleiades*.json.gz"))
         if gz_files:
             return gz_files[0]
 
+        # Check for uncompressed JSON
+        json_files = list(data_path.glob("pleiades*.json"))
+        if json_files:
+            return json_files[0]
+
         raise FileNotFoundError(
-            f"No Pleiades CSV file found in {data_path}. "
-            "Download from https://pleiades.stoa.org/downloads"
+            f"No Pleiades JSON file found in {data_path}. "
+            "Download pleiades-places-latest.json.gz from https://pleiades.stoa.org/downloads"
         )
 
-    def _load_rows(self, csv_file: Path) -> list[dict]:
-        """Load all rows from CSV."""
-        if csv_file.suffix == '.gz':
-            with gzip.open(csv_file, 'rt', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                return list(reader)
-        else:
-            with open(csv_file, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                return list(reader)
+    def _load_places(self, json_file: Path) -> list[dict]:
+        """Load places from JSON file using streaming parser for large files."""
+        try:
+            import ijson
+            return self._load_places_streaming(json_file)
+        except ImportError:
+            # Fall back to full load if ijson not available
+            logger.warning("ijson not installed, loading full JSON into memory")
+            return self._load_places_full(json_file)
 
-    async def _process_place(self, row: dict) -> None:
+    def _load_places_streaming(self, json_file: Path) -> list[dict]:
+        """Stream parse JSON file using ijson (memory efficient)."""
+        import ijson
+        places = []
+
+        if json_file.suffix == '.gz':
+            f = gzip.open(json_file, 'rb')
+        else:
+            f = open(json_file, 'rb')
+
+        try:
+            # Stream parse @graph array items
+            parser = ijson.items(f, '@graph.item')
+            for place in parser:
+                places.append(place)
+        finally:
+            f.close()
+
+        return places
+
+    def _load_places_full(self, json_file: Path) -> list[dict]:
+        """Load all places from JSON file into memory."""
+        if json_file.suffix == '.gz':
+            with gzip.open(json_file, 'rt', encoding='utf-8') as f:
+                data = json.load(f)
+        else:
+            with open(json_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+        # The JSON dump is a dict with @graph containing the places
+        if isinstance(data, dict) and '@graph' in data:
+            return data['@graph']
+        # Or it might be a list directly
+        if isinstance(data, list):
+            return data
+        # Or places might be nested differently
+        if isinstance(data, dict) and 'places' in data:
+            return data['places']
+
+        raise ValueError(f"Unexpected JSON structure in {json_file}")
+
+    async def _process_place(self, place: dict) -> None:
         """Process a single Pleiades place into a location."""
-        pleiades_id = row.get("id", "").strip()
-        title = row.get("title", "").strip()
+        # Convert Decimal objects from ijson to float for JSON serialization
+        place = convert_decimals(place)
+
+        pleiades_id = place.get("id", "")
+        title = place.get("title", "").strip()
 
         if not title:
             self.stats["locations_skipped"] += 1
             return
 
-        # Parse coordinates
-        lat_str = row.get("reprLat", "")
-        lon_str = row.get("reprLong", "")
+        # Get representative point coordinates
+        latitude, longitude = self._get_coordinates(place)
 
-        latitude = float(lat_str) if lat_str else None
-        longitude = float(lon_str) if lon_str else None
+        # Determine location type and subtype from placeTypes
+        place_types = place.get("placeTypes", [])
+        location_type, location_subtype = self._map_place_types(place_types)
 
-        # Determine location type and subtype
-        feature_types = row.get("featureTypes", "").lower()
-        location_type, location_subtype = self._map_feature_type(feature_types)
+        # Build structured historical names from names array
+        historical_names = self._build_historical_names(place, pleiades_id)
 
-        # Build structured historical names
-        historical_names = self._build_historical_names(row, pleiades_id)
+        # Parse locations into location_changes (different positions over time)
+        location_changes = self._parse_location_changes(place)
 
-        # Parse time periods into location_changes structure
-        location_changes = self._parse_time_periods(row)
+        # Build uncertainty notes from accuracy and precision
+        uncertainty_km, uncertainty_notes = self._build_uncertainty(place)
 
-        # Build uncertainty notes from precision
-        precision = row.get("locationPrecision", "").lower()
-        uncertainty_km = self._precision_to_uncertainty(precision)
-        uncertainty_notes = self._build_uncertainty_notes(precision, row)
+        # Build boundary from bbox
+        boundary_geojson = self._build_boundary(place, location_type)
 
-        # Build boundary_geojson for areas from bounding box
-        boundary_geojson = self._build_boundary(row, location_type)
+        # Build terrain notes from place types
+        terrain_notes = self._build_terrain_notes(place_types)
 
-        # Build terrain notes from feature types
-        terrain_notes = self._build_terrain_notes(row)
-
-        # Build description with Pleiades URL
-        description = self._build_description(row, pleiades_id)
+        # Build description
+        description = self._build_description(place, pleiades_id)
 
         await self.create_location(
             name_modern=title,
@@ -193,28 +215,97 @@ class PleiadesIngestor(BaseIngestor):
             external_id=f"pleiades:{pleiades_id}",
         )
 
-    def _build_historical_names(self, row: dict, pleiades_id: str) -> list:
-        """
-        Build structured historical names with period information.
+    def _get_coordinates(self, place: dict) -> tuple[float | None, float | None]:
+        """Extract representative coordinates from place."""
+        # Try reprPoint first (representative point)
+        repr_point = place.get("reprPoint")
+        if repr_point and len(repr_point) == 2:
+            return repr_point[1], repr_point[0]  # [lon, lat] -> (lat, lon)
 
-        Returns list of structured name objects per vision spec.
+        # Try features geometry
+        features = place.get("features", [])
+        for feature in features:
+            geom = feature.get("geometry")
+            if geom and geom.get("type") == "Point":
+                coords = geom.get("coordinates", [])
+                if len(coords) >= 2:
+                    return coords[1], coords[0]  # [lon, lat] -> (lat, lon)
+
+        # Try locations array
+        locations = place.get("locations", [])
+        for loc in locations:
+            geom = loc.get("geometry")
+            if geom and geom.get("type") == "Point":
+                coords = geom.get("coordinates", [])
+                if len(coords) >= 2:
+                    return coords[1], coords[0]
+
+        return None, None
+
+    def _build_historical_names(self, place: dict, pleiades_id: str) -> list:
+        """
+        Build structured historical names from Pleiades names array.
+
+        The JSON has rich name data with:
+        - attested: The name as attested in sources
+        - romanized: Romanized version
+        - language: Language code
+        - start/end: Date range (years)
+        - attestations: Array of {timePeriod, confidence}
         """
         names = []
-        title = row.get("title", "").strip()
-        time_periods = row.get("timePeriodsKeys", "").strip()
+        title = place.get("title", "").strip()
 
-        # Determine overall period range from time periods
-        period_start, period_end = self._get_period_range(time_periods)
+        # Process each name from the names array
+        for name_obj in place.get("names", []):
+            attested = name_obj.get("attested", "").strip()
+            romanized = name_obj.get("romanized", "").strip()
+            language = name_obj.get("language", "")
 
-        # Add the main title as a historical name
-        if title:
-            name_entry = {"name": title}
-            if period_start:
-                name_entry["period_start"] = period_start
-            if period_end:
-                name_entry["period_end"] = period_end
+            # Use attested name if available, otherwise romanized
+            name_str = attested or romanized
+            if not name_str:
+                continue
+
+            name_entry = {"name": name_str}
+
+            # Add language if available
+            if language:
+                name_entry["language"] = language
+
+            # Add romanized version if different from attested
+            if attested and romanized and attested != romanized:
+                name_entry["romanized"] = romanized
+
+            # Add date range from start/end years
+            start_year = name_obj.get("start")
+            end_year = name_obj.get("end")
+            if start_year is not None:
+                name_entry["period_start"] = self._year_to_date_string(start_year)
+            if end_year is not None:
+                name_entry["period_end"] = self._year_to_date_string(end_year)
+
+            # Add attestation info
+            attestations = name_obj.get("attestations", [])
+            if attestations:
+                periods = []
+                for a in attestations:
+                    tp = a.get("timePeriod")
+                    if tp:
+                        # timePeriod can be a string or a dict with title
+                        if isinstance(tp, str):
+                            periods.append(tp)
+                        elif isinstance(tp, dict):
+                            periods.append(tp.get("title", str(tp)))
+                if periods:
+                    name_entry["attested_periods"] = periods
+
             name_entry["source"] = "Pleiades Gazetteer"
             names.append(name_entry)
+
+        # If no names from array, use title
+        if not names and title:
+            names.append({"name": title, "source": "Pleiades Gazetteer"})
 
         # Add the Pleiades identifier for deduplication
         if pleiades_id:
@@ -222,214 +313,217 @@ class PleiadesIngestor(BaseIngestor):
 
         return names
 
-    def _get_period_range(self, time_periods_str: str) -> tuple[str | None, str | None]:
+    def _year_to_date_string(self, year: int) -> str:
+        """Convert year integer to date string for BCE/CE."""
+        if year < 0:
+            return f"{abs(year):04d}-01-01 BC"
+        else:
+            return f"{year:04d}-01-01"
+
+    def _parse_location_changes(self, place: dict) -> list | None:
         """
-        Get overall date range from Pleiades time period keys.
+        Parse Pleiades locations array into location_changes.
 
-        Returns (period_start, period_end) as date strings.
+        Different locations may represent the place at different times
+        or different scholarly interpretations.
         """
-        if not time_periods_str:
-            return None, None
-
-        periods = [p.strip().lower() for p in time_periods_str.split(",") if p.strip()]
-        if not periods:
-            return None, None
-
-        # Find earliest start and latest end
-        earliest_start = None
-        latest_end = None
-
-        for period_key in periods:
-            period_info = PLEIADES_PERIODS.get(period_key)
-            if period_info:
-                start = period_info.get("start")
-                end = period_info.get("end")
-
-                if start:
-                    if earliest_start is None or start < earliest_start:
-                        earliest_start = start
-                if end:
-                    if latest_end is None or end > latest_end:
-                        latest_end = end
-
-        return earliest_start, latest_end
-
-    def _parse_time_periods(self, row: dict) -> list | None:
-        """
-        Parse Pleiades time periods into location_changes structure.
-
-        This captures when a place was known to be active/inhabited.
-        """
-        time_periods_str = row.get("timePeriodsKeys", "").strip()
-        if not time_periods_str:
-            return None
-
-        periods = [p.strip().lower() for p in time_periods_str.split(",") if p.strip()]
-        if not periods:
+        locations = place.get("locations", [])
+        if not locations:
             return None
 
         changes = []
-        for period_key in periods:
-            period_info = PLEIADES_PERIODS.get(period_key)
-            if period_info:
-                change = {
-                    "period": period_info.get("label", period_key),
-                    "period_key": period_key,
-                    "description": f"Attested during {period_info.get('label', period_key)} period",
-                }
-                if period_info.get("start"):
-                    change["period_start"] = period_info["start"]
-                if period_info.get("end"):
-                    change["period_end"] = period_info["end"]
-                changes.append(change)
+        for loc in locations:
+            title = loc.get("title", "")
+            start_year = loc.get("start")
+            end_year = loc.get("end")
+
+            change = {
+                "description": title or "Location variant",
+            }
+
+            # Add coordinates if available
+            geom = loc.get("geometry")
+            if geom and geom.get("type") == "Point":
+                coords = geom.get("coordinates", [])
+                if len(coords) >= 2:
+                    change["coordinates"] = {"x": coords[0], "y": coords[1]}
+
+            # Add date range
+            if start_year is not None:
+                change["period_start"] = self._year_to_date_string(start_year)
+            if end_year is not None:
+                change["period_end"] = self._year_to_date_string(end_year)
+
+            # Add accuracy info
+            accuracy = loc.get("accuracy")
+            if accuracy:
+                change["accuracy"] = accuracy
+
+            # Add attestations
+            attestations = loc.get("attestations", [])
+            if attestations:
+                periods = []
+                for att in attestations:
+                    tp = att.get("timePeriod")
+                    confidence = att.get("confidence", "")
+                    # timePeriod can be a string or a dict with title
+                    if tp:
+                        period_title = tp if isinstance(tp, str) else tp.get("title", str(tp))
+                        if period_title:
+                            periods.append(f"{period_title} ({confidence})" if confidence else period_title)
+                if periods:
+                    change["attested_periods"] = periods
+
+            changes.append(change)
 
         return changes if changes else None
 
-    def _build_uncertainty_notes(self, precision: str, row: dict) -> str | None:
-        """Build uncertainty notes explaining the source of uncertainty."""
+    def _build_uncertainty(self, place: dict) -> tuple[float | None, str | None]:
+        """Build uncertainty radius and notes from accuracy data."""
         notes_parts = []
+        uncertainty_km = None
 
-        precision_descriptions = {
-            "precise": "Pleiades precision: precise - coordinates accurate to < 1 km",
-            "rough": "Pleiades precision: rough - coordinates approximate (5 km uncertainty)",
-            "related": "Pleiades precision: related - location based on nearby known place (10 km uncertainty)",
-            "unlocated": "Pleiades precision: unlocated - exact position unknown",
-        }
+        # Check locations for accuracy info
+        locations = place.get("locations", [])
+        accuracies = []
+        for loc in locations:
+            accuracy = loc.get("accuracy")
+            if accuracy:
+                accuracies.append(accuracy)
 
-        if precision and precision in precision_descriptions:
-            notes_parts.append(precision_descriptions[precision])
+            # Check location precision
+            precision = loc.get("location_precision") or loc.get("locationType")
+            if precision:
+                notes_parts.append(f"Location precision: {precision}")
 
-        # Add certainty info if available
-        certainty = row.get("certainty", "").strip()
-        if certainty:
-            notes_parts.append(f"Certainty: {certainty}")
+        if accuracies:
+            notes_parts.append(f"Accuracy values: {', '.join(accuracies)}")
+            # Try to extract numeric accuracy
+            for acc in accuracies:
+                if isinstance(acc, str) and 'meters' in acc.lower():
+                    try:
+                        # Extract number from strings like "200 meters"
+                        num = float(''.join(c for c in acc if c.isdigit() or c == '.'))
+                        uncertainty_km = num / 1000
+                        break
+                    except ValueError:
+                        pass
 
-        return "; ".join(notes_parts) if notes_parts else None
+        # Check review state
+        review_state = place.get("review_state")
+        if review_state and review_state != "published":
+            notes_parts.append(f"Review state: {review_state}")
 
-    def _build_boundary(self, row: dict, location_type: str) -> dict | None:
-        """
-        Build boundary_geojson from Pleiades bounding box for area types.
-        """
+        return uncertainty_km, "; ".join(notes_parts) if notes_parts else None
+
+    def _build_boundary(self, place: dict, location_type: str) -> dict | None:
+        """Build boundary GeoJSON from bbox."""
         if location_type != "area":
             return None
 
-        # Pleiades provides bbox as comma-separated: minLon,minLat,maxLon,maxLat
-        bbox_str = row.get("bbox", "").strip()
-        if not bbox_str:
+        bbox = place.get("bbox")
+        if not bbox or len(bbox) != 4:
             return None
 
         try:
-            parts = [float(x.strip()) for x in bbox_str.split(",")]
-            if len(parts) == 4:
-                min_lon, min_lat, max_lon, max_lat = parts
-                # Create GeoJSON Polygon for the bounding box
-                return {
-                    "type": "Polygon",
-                    "coordinates": [[
-                        [min_lon, min_lat],
-                        [max_lon, min_lat],
-                        [max_lon, max_lat],
-                        [min_lon, max_lat],
-                        [min_lon, min_lat],  # Close the polygon
-                    ]]
-                }
-        except (ValueError, IndexError):
-            pass
-
-        return None
-
-    def _build_terrain_notes(self, row: dict) -> str | None:
-        """Build terrain notes from feature types."""
-        feature_types = row.get("featureTypes", "").strip()
-        if not feature_types:
+            min_lon, min_lat, max_lon, max_lat = bbox
+            return {
+                "type": "Polygon",
+                "coordinates": [[
+                    [min_lon, min_lat],
+                    [max_lon, min_lat],
+                    [max_lon, max_lat],
+                    [min_lon, max_lat],
+                    [min_lon, min_lat],
+                ]]
+            }
+        except (ValueError, TypeError):
             return None
 
-        return f"Pleiades feature types: {feature_types}"
+    def _build_terrain_notes(self, place_types: list) -> str | None:
+        """Build terrain notes from place types."""
+        if not place_types:
+            return None
+        return f"Pleiades place types: {', '.join(place_types)}"
 
-    def _build_description(self, row: dict, pleiades_id: str) -> str | None:
-        """Build description including Pleiades URL and metadata."""
+    def _build_description(self, place: dict, pleiades_id: str) -> str | None:
+        """Build description including metadata and references."""
         parts = []
 
         # Original description
-        desc = row.get("description", "").strip()
+        desc = place.get("description", "").strip()
         if desc:
             parts.append(desc)
 
-        # Time periods in human readable form
-        time_periods = row.get("timePeriods", "").strip()
-        if time_periods:
-            parts.append(f"Active periods: {time_periods}")
+        # Connections
+        connects_with = place.get("connectsWith", [])
+        if connects_with:
+            parts.append(f"Connected to {len(connects_with)} other places")
 
-        # Date range
-        min_date = row.get("minDate", "")
-        max_date = row.get("maxDate", "")
-        if min_date and max_date:
-            parts.append(f"Date range: {min_date} to {max_date}")
+        # References
+        references = place.get("references", [])
+        if references:
+            ref_count = len(references)
+            parts.append(f"Citations: {ref_count} reference(s)")
 
-        # Pleiades URL for reference
+        # Pleiades URL
         if pleiades_id:
             parts.append(f"Source: https://pleiades.stoa.org/places/{pleiades_id}")
 
         return "\n\n".join(parts) if parts else None
 
-    def _map_feature_type(self, feature_types: str) -> tuple[str, str | None]:
+    def _map_place_types(self, place_types: list) -> tuple[str, str | None]:
         """
-        Map Pleiades feature types to our location_type/location_subtype.
+        Map Pleiades place types to our location_type/location_subtype.
 
         location_type: point, area, linear
         location_subtype: more specific classification
         """
-        ft = feature_types.lower()
+        if not place_types:
+            return ("point", None)
+
+        types_lower = [t.lower() for t in place_types]
+        types_str = " ".join(types_lower)
 
         # Areas
-        if any(x in ft for x in ["region", "province", "territory", "country"]):
+        if any(x in types_str for x in ["region", "province", "territory", "country", "diocese"]):
             return ("area", "region")
-        if any(x in ft for x in ["island", "peninsula"]):
+        if any(x in types_str for x in ["island", "peninsula"]):
             return ("area", "landform")
+        if any(x in types_str for x in ["bay", "gulf", "strait", "sea", "ocean"]):
+            return ("area", "water")
 
         # Linear features
-        if any(x in ft for x in ["road", "wall", "aqueduct", "canal"]):
-            return ("linear", feature_types.split(",")[0].strip() if "," in ft else ft)
-        if "river" in ft:
+        if any(x in types_str for x in ["road", "via", "wall", "aqueduct", "canal"]):
+            return ("linear", place_types[0] if place_types else None)
+        if "river" in types_str:
             return ("linear", "river")
 
         # Points - settlements
-        if any(x in ft for x in ["settlement", "urban", "city", "town", "village"]):
+        if any(x in types_str for x in ["settlement", "urban", "city", "town", "village", "polis"]):
             return ("point", "settlement")
 
         # Points - landmarks
-        if any(x in ft for x in ["temple", "sanctuary", "shrine"]):
+        if any(x in types_str for x in ["temple", "sanctuary", "shrine", "church"]):
             return ("point", "religious")
-        if any(x in ft for x in ["fort", "fortress", "military", "camp"]):
+        if any(x in types_str for x in ["fort", "fortress", "military", "camp", "castrum"]):
             return ("point", "military")
-        if any(x in ft for x in ["port", "harbor", "harbour"]):
+        if any(x in types_str for x in ["port", "harbor", "harbour"]):
             return ("point", "port")
-        if any(x in ft for x in ["mine", "quarry"]):
+        if any(x in types_str for x in ["mine", "quarry"]):
             return ("point", "resource")
-        if any(x in ft for x in ["bath", "theater", "theatre", "stadium", "arena"]):
+        if any(x in types_str for x in ["bath", "theater", "theatre", "stadium", "arena", "amphitheater"]):
             return ("point", "civic")
-        if any(x in ft for x in ["cemetery", "tomb", "necropolis"]):
+        if any(x in types_str for x in ["cemetery", "tomb", "necropolis", "tumulus"]):
             return ("point", "funerary")
 
         # Natural features
-        if any(x in ft for x in ["mountain", "peak", "hill", "volcano"]):
+        if any(x in types_str for x in ["mountain", "peak", "hill", "volcano", "mons"]):
             return ("point", "mountain")
-        if any(x in ft for x in ["lake", "spring", "well", "fountain"]):
+        if any(x in types_str for x in ["lake", "spring", "well", "fountain"]):
             return ("point", "water")
-        if any(x in ft for x in ["bay", "gulf", "strait", "sea"]):
-            return ("area", "water")
-        if any(x in ft for x in ["cape", "promontory"]):
+        if any(x in types_str for x in ["cape", "promontory"]):
             return ("point", "landform")
 
         # Default
-        return ("point", None)
-
-    def _precision_to_uncertainty(self, precision: str) -> float | None:
-        """Convert Pleiades precision to uncertainty radius in km."""
-        precision_map = {
-            "precise": 0.1,
-            "rough": 5.0,
-            "related": 10.0,
-            "unlocated": None,
-        }
-        return precision_map.get(precision.lower())
+        return ("point", place_types[0] if place_types else None)
