@@ -84,17 +84,42 @@ class BaseIngestor(ABC):
     async def create_location(
         self,
         name_modern: str | None,
-        name_historical: list[str] | None = None,
+        name_historical: list | None = None,
         location_type: str = "point",
         location_subtype: str | None = None,
         longitude: float | None = None,
         latitude: float | None = None,
         uncertainty_radius_km: float | None = None,
+        uncertainty_notes: str | None = None,
+        boundary_geojson: dict | None = None,
+        location_changes: list | None = None,
+        climate_notes: str | None = None,
+        terrain_notes: str | None = None,
+        elevation_m: int | None = None,
         description: str | None = None,
         external_id: str | None = None,
     ) -> str | None:
         """
-        Create a location record following the schema.
+        Create a location record following the extended geographic schema.
+
+        Args:
+            name_modern: Current name of the location
+            name_historical: List of historical names. Can be:
+                - Simple strings: ["Rome", "pleiades:123"]
+                - Structured objects: [{"name": "Byzantium", "period_start": "-0667", "period_end": "0330"}]
+            location_type: point, area, or linear
+            location_subtype: More specific classification
+            longitude: X coordinate (WGS84 longitude)
+            latitude: Y coordinate (WGS84 latitude)
+            uncertainty_radius_km: Uncertainty in km
+            uncertainty_notes: Explanation of uncertainty source
+            boundary_geojson: GeoJSON for area boundaries
+            location_changes: Temporal changes to location
+            climate_notes: Climate information
+            terrain_notes: Terrain description
+            elevation_m: Elevation in meters
+            description: General description
+            external_id: External identifier for deduplication
 
         Returns:
             Location UUID as string, or None if skipped.
@@ -106,13 +131,12 @@ class BaseIngestor(ABC):
             self.stats["locations_skipped"] += 1
             return None
 
-        # Prepare historical names
+        # Prepare historical names - ensure it's a list
         hist_names = name_historical or []
-        if external_id and external_id not in hist_names:
-            hist_names.append(external_id)
 
-        # Check for existing by external_id in name_historical
+        # Check for existing by external_id
         if external_id:
+            # Search in name_historical for external_id (could be string or in structured object)
             result = self.supabase.table("locations").select("id").contains("name_historical", [external_id]).limit(1).execute()
             if result.data:
                 self.stats["locations_skipped"] += 1
@@ -127,6 +151,12 @@ class BaseIngestor(ABC):
             "coordinate_x": longitude,
             "coordinate_y": latitude,
             "uncertainty_radius_km": uncertainty_radius_km,
+            "uncertainty_notes": uncertainty_notes,
+            "boundary_geojson": boundary_geojson,
+            "location_changes": location_changes,
+            "climate_notes": climate_notes,
+            "terrain_notes": terrain_notes,
+            "elevation_m": elevation_m,
             "description": description,
         }
         # Remove None values
