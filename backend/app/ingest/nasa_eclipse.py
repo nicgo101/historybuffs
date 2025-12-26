@@ -423,14 +423,14 @@ class NASAEclipseIngestor(BaseIngestor):
         }
 
     def _format_date_display(self, date_str: str) -> str:
-        """Format PostgreSQL date string with BCE/CE notation for display."""
+        """Format PostgreSQL date string with BC/AD notation for display."""
         # Parse PostgreSQL date string like "0584-05-28 BC" or "0029-11-24"
         if date_str.endswith(" BC"):
-            # BCE date
+            # BC date
             parts = date_str.replace(" BC", "").split("-")
             year = int(parts[0])
-            return f"{year} BCE"
+            return f"{year} BC"
         else:
             parts = date_str.split("-")
             year = int(parts[0])
-            return f"{year} CE"
+            return f"{year} AD"

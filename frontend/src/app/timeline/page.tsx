@@ -22,12 +22,49 @@ export const metadata = {
 
 function formatDate(dateString: string | null): string {
   if (!dateString) return 'Unknown date'
+
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+  // DEBUG: Show raw value to identify format
+  // TODO: Remove after fixing
+  console.log('formatDate input:', JSON.stringify(dateString))
+
+  // Format 1: PostgreSQL BC format "0584-05-28 BC"
+  const bcMatch = dateString.match(/^(\d+)-(\d{2})-(\d{2})\s*BC$/i)
+  if (bcMatch) {
+    const year = parseInt(bcMatch[1], 10)
+    const month = parseInt(bcMatch[2], 10)
+    const day = parseInt(bcMatch[3], 10)
+    const monthStr = monthNames[month - 1] || ''
+    return `${monthStr} ${day}, ${year} BC`
+  }
+
+  // Format 2: Negative year format "-0584-05-28"
+  const negMatch = dateString.match(/^-(\d+)-(\d{2})-(\d{2})$/)
+  if (negMatch) {
+    const year = parseInt(negMatch[1], 10)
+    const month = parseInt(negMatch[2], 10)
+    const day = parseInt(negMatch[3], 10)
+    const monthStr = monthNames[month - 1] || ''
+    // Astronomical year 0 = 1 BC, -1 = 2 BC, etc.
+    const bcYear = year + 1
+    return `${monthStr} ${day}, ${bcYear} BC`
+  }
+
+  // Format 3: Standard ISO date "2024-05-28" or AD dates
+  const isoMatch = dateString.match(/^(\d+)-(\d{2})-(\d{2})/)
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1], 10)
+    const month = parseInt(isoMatch[2], 10)
+    const day = parseInt(isoMatch[3], 10)
+    const monthStr = monthNames[month - 1] || ''
+    return `${monthStr} ${day}, ${year} AD`
+  }
+
+  // Fallback for other formats
   const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
+  if (isNaN(date.getTime())) return `[DEBUG: ${dateString}]`
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 function TimelineCard({ placement, index }: { placement: any; index: number }) {

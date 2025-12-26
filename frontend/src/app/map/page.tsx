@@ -11,6 +11,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Slider } from '@/components/ui/slider'
 import {
   Map as MapIcon,
   Layers,
@@ -28,6 +29,7 @@ import {
   Star,
   RefreshCw,
   AlertCircle,
+  ImageIcon,
 } from 'lucide-react'
 import type { MapFactoid, JourneyRoute, BulkLocation } from '@/components/map'
 import { useMapData, useBulkLocations } from '@/hooks/use-map-data'
@@ -71,7 +73,7 @@ const ROUTE_TYPE_INFO = {
 }
 
 export default function MapPage() {
-  // Fetch bulk locations for cluster layer (handles 45k+ locations)
+  // Fetch bulk locations for cluster layer
   const {
     locations,
     loading: locationsLoading,
@@ -79,10 +81,11 @@ export default function MapPage() {
     refetch: refetchLocations,
   } = useBulkLocations({
     fetchOnMount: true,
+    useDemoFallback: true,
   })
 
-  // Fetch factoids and routes (for filtered/featured items and routes)
-  const { factoids, routes, loading: dataLoading, error: dataError, refetch: refetchData } = useMapData({
+  // Fetch factoids, routes, and overlays (for filtered/featured items, routes, and historical maps)
+  const { factoids, routes, overlays, loading: dataLoading, error: dataError, refetch: refetchData } = useMapData({
     fetchOnMount: true,
     useDemoFallback: true,
   })
@@ -102,6 +105,8 @@ export default function MapPage() {
     new Set(['documented', 'attested', 'inferred'])
   )
   const [visibleRoutes, setVisibleRoutes] = useState<Set<string>>(new Set())
+  const [visibleOverlays, setVisibleOverlays] = useState<Set<string>>(new Set())
+  const [overlayOpacity, setOverlayOpacity] = useState(70)
   const [showFilters, setShowFilters] = useState(false)
 
   // Initialize visible routes when routes are loaded
@@ -110,6 +115,13 @@ export default function MapPage() {
       setVisibleRoutes(new Set(routes.map((r) => r.id)))
     }
   }, [routes])
+
+  // Initialize visible overlays when overlays are loaded
+  useMemo(() => {
+    if (overlays.length > 0 && visibleOverlays.size === 0) {
+      setVisibleOverlays(new Set(overlays.map((o) => o.id)))
+    }
+  }, [overlays])
 
   const handleFactoidClick = useCallback((factoid: MapFactoid) => {
     setSelectedFactoid(factoid)
@@ -139,9 +151,24 @@ export default function MapPage() {
     })
   }
 
+  const toggleOverlay = (overlayId: string) => {
+    setVisibleOverlays((prev) => {
+      const next = new Set(prev)
+      if (next.has(overlayId)) {
+        next.delete(overlayId)
+      } else {
+        next.add(overlayId)
+      }
+      return next
+    })
+  }
+
   // Filter factoids based on visible layers
   const filteredFactoids = factoids.filter((f) => visibleLayers.has(f.layer))
   const filteredRoutes = routes.filter((r) => visibleRoutes.has(r.id))
+  const filteredOverlays = overlays
+    .filter((o) => visibleOverlays.has(o.id))
+    .map((o) => ({ ...o, opacity: overlayOpacity / 100 }))
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col">
@@ -203,6 +230,7 @@ export default function MapPage() {
           locations={locations}
           factoids={filteredFactoids}
           journeyRoutes={filteredRoutes}
+          historicalOverlays={filteredOverlays}
           showUncertainty={showUncertainty}
           onFactoidClick={handleFactoidClick}
           initialCenter={[35.0, 33.0]}
@@ -247,6 +275,11 @@ export default function MapPage() {
           <Badge variant="secondary" className="bg-background/95 backdrop-blur-sm">
             {filteredRoutes.length} Routes
           </Badge>
+          {overlays.length > 0 && (
+            <Badge variant="secondary" className="bg-background/95 backdrop-blur-sm">
+              {overlays.length} {overlays.length === 1 ? 'Overlay' : 'Overlays'}
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -320,6 +353,55 @@ export default function MapPage() {
                 })}
               </div>
             </div>
+
+            {/* Historical Map Overlays */}
+            {overlays.length > 0 && (
+              <div>
+                <h4 className="font-medium text-sm mb-3">Historical Map Overlays</h4>
+                <div className="space-y-3">
+                  {/* Opacity Slider */}
+                  <div className="p-3 rounded-lg border border-border bg-secondary/30">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm">Opacity</span>
+                      <span className="text-sm text-muted-foreground">{overlayOpacity}%</span>
+                    </div>
+                    <Slider
+                      value={[overlayOpacity]}
+                      onValueChange={(value) => setOverlayOpacity(value[0])}
+                      min={10}
+                      max={100}
+                      step={5}
+                      className="w-full"
+                    />
+                  </div>
+
+                  {/* Overlay toggles */}
+                  {overlays.map((overlay) => (
+                    <button
+                      key={overlay.id}
+                      onClick={() => toggleOverlay(overlay.id)}
+                      className={`w-full flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                        visibleOverlays.has(overlay.id)
+                          ? 'border-primary/30 bg-primary/5'
+                          : 'border-border bg-background hover:bg-secondary/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <ImageIcon className="h-4 w-4 text-amber-600" />
+                        <div className="text-left">
+                          <span className="text-sm block">{overlay.name}</span>
+                        </div>
+                      </div>
+                      {visibleOverlays.has(overlay.id) ? (
+                        <Eye className="h-4 w-4 text-primary" />
+                      ) : (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </SheetContent>
       </Sheet>
@@ -441,8 +523,8 @@ export default function MapPage() {
                       <Calendar className="h-4 w-4 text-muted-foreground" />
                       <span>
                         {selectedFactoid.dateStart.startsWith('-')
-                          ? `${selectedFactoid.dateStart.slice(1)} BCE`
-                          : `${selectedFactoid.dateStart} CE`}
+                          ? `${selectedFactoid.dateStart.slice(1)} BC`
+                          : `${selectedFactoid.dateStart} AD`}
                       </span>
                     </div>
                   </div>

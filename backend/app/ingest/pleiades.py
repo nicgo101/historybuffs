@@ -43,7 +43,7 @@ class PleiadesIngestor(BaseIngestor):
     """
     Ingestor for Pleiades ancient places gazetteer (JSON format).
 
-    Creates: locations (with extended geographic schema)
+    Creates: locations (with extended geographic schema) + connections
     Does NOT create: factoids, sources, actors
 
     Uses the extended schema fields:
@@ -52,17 +52,27 @@ class PleiadesIngestor(BaseIngestor):
     - location_changes: From location variants with different date ranges
     - terrain_notes: From place types
     - boundary_geojson: From bbox
+
+    Connections are ingested in a second pass after all locations exist.
     """
+
+    def __init__(self, data_dir: str = "./data"):
+        super().__init__(data_dir)
+        # Cache: pleiades_id -> location_uuid
+        self.location_id_cache: dict[str, str] = {}
+        # Store connections for second pass: list of (from_pleiades_id, connection_data)
+        self.pending_connections: list[tuple[str, dict]] = []
 
     def get_source_name(self) -> str:
         return "Pleiades Gazetteer"
 
-    async def ingest(self, limit: int | None = None) -> dict[str, Any]:
+    async def ingest(self, limit: int | None = None, skip_connections: bool = False) -> dict[str, Any]:
         """
         Ingest Pleiades places as locations from JSON dump.
 
         Args:
             limit: Optional limit on number of places to ingest (for testing).
+            skip_connections: If True, skip the connections pass (faster for testing).
 
         Returns:
             Ingestion statistics.
@@ -82,11 +92,21 @@ class PleiadesIngestor(BaseIngestor):
 
             self.log_progress(f"Processing {len(places)} places...")
 
+            # First pass: Create locations and collect connections
             for place in tqdm(places, desc="Pleiades locations"):
                 try:
                     await self._process_place(place)
                 except Exception as e:
                     self.log_error(f"Failed to process place {place.get('id', 'unknown')}", e)
+
+            self.log_progress(f"Locations complete. Cache has {len(self.location_id_cache)} entries.")
+
+            # Second pass: Create connections
+            if not skip_connections and self.pending_connections:
+                self.log_progress(f"Processing {len(self.pending_connections)} connections...")
+                await self._process_connections()
+            elif self.pending_connections:
+                self.log_progress(f"Skipping {len(self.pending_connections)} connections (skip_connections=True)")
 
             self.log_progress("Ingestion complete!")
             return self.get_stats()
@@ -196,10 +216,10 @@ class PleiadesIngestor(BaseIngestor):
         # Build terrain notes from place types
         terrain_notes = self._build_terrain_notes(place_types)
 
-        # Build description
+        # Build description (without connection count - we'll store actual connections)
         description = self._build_description(place, pleiades_id)
 
-        await self.create_location(
+        location_uuid = await self.create_location(
             name_modern=title,
             name_historical=historical_names,
             location_type=location_type,
@@ -214,6 +234,180 @@ class PleiadesIngestor(BaseIngestor):
             description=description,
             external_id=f"pleiades:{pleiades_id}",
         )
+
+        # Cache the location UUID for connection processing
+        if location_uuid and pleiades_id:
+            self.location_id_cache[pleiades_id] = location_uuid
+
+        # Collect connections for second pass
+        connections = place.get("connections", [])
+        for conn in connections:
+            self.pending_connections.append((pleiades_id, conn))
+
+    async def _process_connections(self) -> None:
+        """
+        Process collected connections in a second pass.
+
+        This ensures all locations exist before creating connections between them.
+        """
+        success = 0
+        skipped_missing = 0
+        skipped_error = 0
+
+        for from_pleiades_id, conn in tqdm(self.pending_connections, desc="Pleiades connections"):
+            try:
+                # Get the "from" location UUID from cache
+                from_uuid = self.location_id_cache.get(from_pleiades_id)
+                if not from_uuid:
+                    skipped_missing += 1
+                    continue
+
+                # Extract the "to" Pleiades ID from the URL
+                # URL format: https://pleiades.stoa.org/places/413005
+                connects_to = conn.get("connectsTo", "")
+                to_pleiades_id = self._extract_pleiades_id(connects_to)
+                if not to_pleiades_id:
+                    skipped_missing += 1
+                    continue
+
+                # Get the "to" location UUID from cache
+                to_uuid = self.location_id_cache.get(to_pleiades_id)
+                if not to_uuid:
+                    skipped_missing += 1
+                    continue
+
+                # Map Pleiades connection type to our schema
+                connection_type = self._map_connection_type(conn.get("connectionType", "connection"))
+
+                # Map certainty to confidence
+                certainty = conn.get("associationCertainty", "certain")
+                confidence = self._map_certainty_to_confidence(certainty)
+
+                # Build notes with temporal and attestation info
+                notes = self._build_connection_notes(conn)
+
+                # Create the connection
+                await self.create_connection(
+                    from_entity_type="location",
+                    from_entity_id=from_uuid,
+                    to_entity_type="location",
+                    to_entity_id=to_uuid,
+                    connection_type=connection_type,
+                    confidence=confidence,
+                    notes=notes,
+                )
+                success += 1
+
+            except Exception as e:
+                self.log_error(f"Failed to create connection from {from_pleiades_id}", e)
+                skipped_error += 1
+
+        self.log_progress(
+            f"Connections: {success} created, {skipped_missing} skipped (missing), {skipped_error} errors"
+        )
+
+    def _extract_pleiades_id(self, url: str) -> str | None:
+        """Extract Pleiades ID from URL like https://pleiades.stoa.org/places/413005"""
+        if not url:
+            return None
+        # Handle both full URLs and just the ID
+        if "pleiades.stoa.org/places/" in url:
+            return url.split("/places/")[-1].split("/")[0]
+        if url.isdigit():
+            return url
+        return None
+
+    def _map_connection_type(self, pleiades_type: str) -> str:
+        """Map Pleiades connection types to our schema types."""
+        # Our schema supports: temporal, spatial, evidential, creative
+        # Map Pleiades types to appropriate categories
+
+        spatial_types = {
+            "at", "on", "near", "in", "bounds", "abuts", "crosses", "intersects",
+            "part_of_physical", "part_of_regional", "part_of_admin", "part_of_analytical",
+            "north_of", "south_of", "east_of", "west_of",
+            "northeast_of", "northwest_of", "southeast_of", "southwest_of",
+            "in_territory_of", "port_of",
+        }
+
+        temporal_types = {
+            "succeeds", "founded", "relocated_to", "phase",
+        }
+
+        route_types = {
+            "route_next", "communicates", "flows_into", "flows_through",
+        }
+
+        identity_types = {
+            "same_as", "member", "sympoliteia", "isopoliteia", "dependent", "ally",
+        }
+
+        administrative_types = {
+            "capital", "material_source",
+        }
+
+        pt = pleiades_type.lower()
+
+        if pt in spatial_types:
+            return f"spatial:{pt}"
+        if pt in temporal_types:
+            return f"temporal:{pt}"
+        if pt in route_types:
+            return f"route:{pt}"
+        if pt in identity_types:
+            return f"identity:{pt}"
+        if pt in administrative_types:
+            return f"admin:{pt}"
+
+        # Default: use as-is with "pleiades:" prefix
+        return f"pleiades:{pt}"
+
+    def _map_certainty_to_confidence(self, certainty: str) -> float:
+        """Map Pleiades certainty levels to confidence scores."""
+        mapping = {
+            "certain": 0.95,
+            "confident": 0.85,
+            "less-certain": 0.65,
+            "uncertain": 0.45,
+        }
+        return mapping.get(certainty.lower(), 0.75)
+
+    def _build_connection_notes(self, conn: dict) -> str | None:
+        """Build notes string from connection metadata."""
+        parts = []
+
+        # Title of the connected place
+        title = conn.get("title", "")
+        if title:
+            parts.append(f"Connected to: {title}")
+
+        # Temporal range
+        start = conn.get("start")
+        end = conn.get("end")
+        if start is not None or end is not None:
+            period = f"{start or '?'} - {end or '?'}"
+            parts.append(f"Period: {period}")
+
+        # Attestations
+        attestations = conn.get("attestations", [])
+        if attestations:
+            periods = []
+            for att in attestations:
+                tp = att.get("timePeriod")
+                if tp:
+                    if isinstance(tp, dict):
+                        periods.append(tp.get("title", str(tp)))
+                    else:
+                        periods.append(str(tp))
+            if periods:
+                parts.append(f"Attested: {', '.join(periods)}")
+
+        # Pleiades reference
+        uri = conn.get("uri")
+        if uri:
+            parts.append(f"Source: {uri}")
+
+        return "; ".join(parts) if parts else None
 
     def _get_coordinates(self, place: dict) -> tuple[float | None, float | None]:
         """Extract representative coordinates from place."""

@@ -507,6 +507,10 @@ SELECT * FROM "V/61/ptolemy" WHERE Vmag < 3
 - **Partner Collections:** British Museum, Penn Museum, Yale, Vorderasiatisches Museum
 
 #### Pleiades (Ancient World Gazetteer)
+
+pleiades has frquent updates, always fetch 	pleiades-places-latest.json.gz which is latest file so we can update. mind on update to not overwrite data we might have added to tables. 
+https://atlantides.org/downloads/pleiades/json/
+
 - **URL:** https://pleiades.stoa.org/
 - **API:** Per-place JSON at `/places/{pid}/json`
 - **Data Available:** 41,824 places; 40,844 names; 44,939 locations (Greek and Roman world)

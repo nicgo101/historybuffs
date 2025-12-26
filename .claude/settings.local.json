@@ -30,7 +30,21 @@
       "Bash(npm install:*)",
       "mcp__supabase__list_tables",
       "Bash(ls:*)",
-      "WebFetch(domain:pleiades.stoa.org)"
+      "WebFetch(domain:pleiades.stoa.org)",
+      "WebFetch(domain:www.davidrumsey.com)",
+      "WebSearch",
+      "WebFetch(domain:awmc.unc.edu)",
+      "WebFetch(domain:cawm.lib.uiowa.edu)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:observablehq.com)",
+      "WebFetch(domain:www.leventhalmap.org)",
+      "WebFetch(domain:iiif.io)",
+      "Bash(npx shadcn@latest add slider -y)",
+      "Bash(npx tsc:*)",
+      "Bash(pkill:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(source /mnt/c/nicgo/dev/projects/historybuff/backend/.env)"
     ]
   },
   "enabledMcpjsonServers": [
